@@ -116,41 +116,133 @@ except Exception as e:
     logger.error("Failed to create redis_client: %s", e)
     redis_client = None
 # ...existing code...
-# ...existing code...
-# Key namespace structure: <namespace>:<project>:<module>:history:<session_id>
+# # ...existing code...
+# # Key namespace structure: <namespace>:<project>:<module>:history:<session_id>
+# NAMESPACE = "non-prod"
+# PROJECT = "occhub"
+# MODULE = "weather_mcp"
+ 
+# # Concept test: single dummy session
+# DUMMY_SESSION_ID = "test-session-1"
+ 
+# HISTORY_TTL_SECONDS = 60 * 60 * 24 # 1 day
+# MAX_HISTORY_MESSAGES = 20 # last 20 messages (user+assistant)
+ 
+# def make_history_key(session_id: str) -> str:
+#     """
+#     <namespace>:<project>:<module>:chathistory:<session_id>
+#     """
+#     return f"{NAMESPACE}:{PROJECT}:{MODULE}:history:{session_id}"
+ 
+ 
+# # ...existing code...
+ 
+# def append_turn_to_history(session_id: str, user_msg: str, assistant_msg: str) -> None:
+#     """
+#     Store one full turn (user + assistant) in Redis List.
+#     This function is defensive: it returns immediately if Redis is unavailable
+#     or if any Redis operation fails (logs the error).
+#     """
+#     if not redis_client:
+#         logger.debug("append_turn_to_history: redis_client is not available, skipping")
+#         return
+ 
+#     key = make_history_key(session_id)
+#     user_entry = json.dumps({"role": "user", "content": user_msg}, ensure_ascii=False)
+#     assistant_entry = json.dumps({"role": "assistant", "content": assistant_msg}, ensure_ascii=False)
+ 
+#     try:
+#         pipe = redis_client.pipeline()
+#         pipe.rpush(key, user_entry, assistant_entry)
+#         pipe.expire(key, HISTORY_TTL_SECONDS)
+#         pipe.execute()
+#     except Exception as e:
+#         logger.warning("append_turn_to_history failed for key=%s: %s", key, e)
+ 
+ 
+# def load_history_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
+#     """
+#     Load last N messages from Redis and return as list of dicts.
+#     Defensive: returns empty list if Redis is unavailable or on error.
+#     """
+#     if not redis_client:
+#         logger.debug("load_history_messages: redis_client is not available")
+#         return []
+ 
+#     key = make_history_key(session_id)
+#     try:
+#         length = redis_client.llen(key)
+#     except Exception as e:
+#         logger.warning("Redis llen failed for key=%s: %s", key, e)
+#         return []
+ 
+#     if not length:
+#         return []
+ 
+#     start = max(0, length - max_messages)
+#     try:
+#         raw_msgs = redis_client.lrange(key, start, -1)
+#     except Exception as e:
+#         logger.warning("Redis lrange failed for key=%s: %s", key, e)
+#         return []
+ 
+#     messages = []
+#     for raw in raw_msgs:
+#         try:
+#             messages.append(json.loads(raw))
+#         except Exception:
+#             continue
+#     return messages
+ 
+# # ...existing code...
+# encoder = EventEncoder()
+
 NAMESPACE = "non-prod"
 PROJECT = "occhub"
 MODULE = "weather_mcp"
- 
-# Concept test: single dummy session
+
+# Concept test: single dummy session (fallback)
 DUMMY_SESSION_ID = "test-session-1"
- 
-HISTORY_TTL_SECONDS = 60 * 60 * 24 # 1 day
-MAX_HISTORY_MESSAGES = 20 # last 20 messages (user+assistant)
- 
-def make_history_key(session_id: str) -> str:
+
+HISTORY_TTL_SECONDS = 60 * 60 * 24  # 1 day
+MAX_HISTORY_MESSAGES = 20  # last 20 messages (user+assistant)
+
+
+def _sanitize_id(part: str) -> str:
     """
-    <namespace>:<project>:<module>:chathistory:<session_id>
+    Sanitize user/session identifiers for safe Redis keys.
+    Keeps alphanumeric, "-" and "_", replaces everything else with "_".
     """
-    return f"{NAMESPACE}:{PROJECT}:{MODULE}:history:{session_id}"
- 
- 
+    if not part:
+        return "anon"
+    return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in str(part))
+
+
+def make_history_key(user_id: str, session_id: str) -> str:
+    """
+    <namespace>:<project>:<module>:history:<user_id>:<session_id>
+    """
+    uid = _sanitize_id(user_id)
+    sid = _sanitize_id(session_id)
+    return f"{NAMESPACE}:{PROJECT}:{MODULE}:history:{uid}:{sid}"
+
+
 # ...existing code...
- 
-def append_turn_to_history(session_id: str, user_msg: str, assistant_msg: str) -> None:
+
+
+def append_turn_to_history(user_id: str, session_id: str, user_msg: str, assistant_msg: str) -> None:
     """
-    Store one full turn (user + assistant) in Redis List.
-    This function is defensive: it returns immediately if Redis is unavailable
-    or if any Redis operation fails (logs the error).
+    Store one full turn (user + assistant) in Redis List for a given user + session.
+    Defensive: it returns immediately if Redis is unavailable or any operation fails.
     """
     if not redis_client:
         logger.debug("append_turn_to_history: redis_client is not available, skipping")
         return
- 
-    key = make_history_key(session_id)
+
+    key = make_history_key(user_id, session_id)
     user_entry = json.dumps({"role": "user", "content": user_msg}, ensure_ascii=False)
     assistant_entry = json.dumps({"role": "assistant", "content": assistant_msg}, ensure_ascii=False)
- 
+
     try:
         pipe = redis_client.pipeline()
         pipe.rpush(key, user_entry, assistant_entry)
@@ -158,34 +250,34 @@ def append_turn_to_history(session_id: str, user_msg: str, assistant_msg: str) -
         pipe.execute()
     except Exception as e:
         logger.warning("append_turn_to_history failed for key=%s: %s", key, e)
- 
- 
-def load_history_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
+
+
+def load_history_messages(user_id: str, session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
     """
-    Load last N messages from Redis and return as list of dicts.
+    Load last N messages from Redis for a given user + session and return as list of dicts.
     Defensive: returns empty list if Redis is unavailable or on error.
     """
     if not redis_client:
         logger.debug("load_history_messages: redis_client is not available")
         return []
- 
-    key = make_history_key(session_id)
+
+    key = make_history_key(user_id, session_id)
     try:
         length = redis_client.llen(key)
     except Exception as e:
         logger.warning("Redis llen failed for key=%s: %s", key, e)
         return []
- 
+
     if not length:
         return []
- 
+
     start = max(0, length - max_messages)
     try:
         raw_msgs = redis_client.lrange(key, start, -1)
     except Exception as e:
         logger.warning("Redis lrange failed for key=%s: %s", key, e)
         return []
- 
+
     messages = []
     for raw in raw_msgs:
         try:
@@ -193,9 +285,10 @@ def load_history_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSA
         except Exception:
             continue
     return messages
- 
+
 # ...existing code...
 encoder = EventEncoder()
+
  
 async def fetch_mcp_token() -> str:
     """Fetch authentication token for MCP server - aligned with test script."""
@@ -266,9 +359,9 @@ async def test_mcp_connection():
         print(f"❌ MCP connection test failed: {e}")
         return False
  
-async def interact_with_server(user_prompt: str):
+async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
     """Main orchestration generator that yields AG-UI events for streaming."""
-    session_id=DUMMY_SESSION_ID
+    # session_id=DUMMY_SESSION_ID
     client = None
     try:
         # Create authenticated MCP client
@@ -325,14 +418,15 @@ async def interact_with_server(user_prompt: str):
             ]
  
            
-            # 2) Conversation history from Redis (dummy session)
-            history_messages = load_history_messages(session_id)
+            # 2) Conversation history from Redis (per user + session)
+            history_messages = load_history_messages(user_id, session_id)
             print("1.5")
             if history_messages:
-                print(f"🧠 Loaded {len(history_messages)} history messages from Redis for session {session_id}")
+                print(
+                    f"🧠 Loaded {len(history_messages)} history messages "
+                    f"from Redis for user={user_id}, session={session_id}"
+                )
             messages.extend(history_messages)
-           
-            print("2")
             # 3) Current user prompt
             messages.append(
                 {
@@ -469,8 +563,10 @@ async def interact_with_server(user_prompt: str):
                         print(f"  ✅ Finished streaming all {len(content)} characters")
                    
                         try:
-                            append_turn_to_history(session_id, user_prompt, content)
-                            print(f"💾 Saved turn to Redis for session={session_id}")
+                            append_turn_to_history(user_id, session_id, user_prompt, content)
+                            print(
+                                f"💾 Saved turn to Redis for user={user_id}, session={session_id}"
+                            )
                         except Exception as redis_err:
                             print(f"⚠️ Failed to write chat history to Redis: {redis_err}")
                    
@@ -523,26 +619,59 @@ async def interact_with_server(user_prompt: str):
             print("🔚 MCP client interaction complete.")
  
  
+# @app.post("/get_data")
+# async def stream_response(userprompt: str = Query(...)):
+#     print(f"\n{'='*60}")
+#     print(f"🟡 NEW REQUEST: {userprompt}")
+#     print(f"{'='*60}\n")
+   
+#     async def event_generator():
+#         try:
+#             async for event in interact_with_server(userprompt):
+#                 # event is a string from encoder.encode()
+#                 # Ensure event ends with newline for SSE format
+#                 if not event.endswith('\n'):
+#                     event = event + '\n'
+#                 yield event
+#                 # Force flush with tiny delay
+#                 await asyncio.sleep(0)
+#         except Exception as e:
+#             print(f"❌ Generator error: {e}")
+#             traceback.print_exc()
+ 
+#     return StreamingResponse(
+#         event_generator(),
+#         media_type="text/event-stream",
+#         headers={
+#             "Cache-Control": "no-cache, no-transform",
+#             "Connection": "keep-alive",
+#             "X-Accel-Buffering": "no",
+#             "Content-Type": "text/event-stream",
+#         },
+#     )
+ 
 @app.post("/get_data")
-async def stream_response(userprompt: str = Query(...)):
+async def stream_response(
+    userprompt: str = Query(...),
+    user_id: str = Query("anonymous", alias="userId"),
+    session_id: str = Query(DUMMY_SESSION_ID, alias="sessionId"),
+):
     print(f"\n{'='*60}")
     print(f"🟡 NEW REQUEST: {userprompt}")
     print(f"{'='*60}\n")
-   
+
     async def event_generator():
         try:
-            async for event in interact_with_server(userprompt):
+            async for event in interact_with_server(userprompt, session_id, user_id):
                 # event is a string from encoder.encode()
-                # Ensure event ends with newline for SSE format
                 if not event.endswith('\n'):
                     event = event + '\n'
                 yield event
-                # Force flush with tiny delay
                 await asyncio.sleep(0)
         except Exception as e:
             print(f"❌ Generator error: {e}")
             traceback.print_exc()
- 
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
@@ -553,7 +682,7 @@ async def stream_response(userprompt: str = Query(...)):
             "Content-Type": "text/event-stream",
         },
     )
- 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint that also tests MCP server connectivity."""
@@ -619,6 +748,29 @@ async def test_mcp_endpoint():
             "error": str(e),
             "token_obtained": token is not None if 'token' in locals() else False
         }
+
+@app.delete("/session")
+async def delete_session(userId: str = Query("anonymous"), sessionId: str = Query(DUMMY_SESSION_ID)):
+    """
+    Delete Redis history for given userId + sessionId.
+    Returns 200 on success, 404 if key not found, 503 if Redis unavailable.
+    """
+    try:
+        if not redis_client:
+            logger.warning("delete_session: redis_client not available")
+            return {"status": "failed", "error": "redis unavailable"}
+
+        key = make_history_key(userId, sessionId)
+        deleted = redis_client.delete(key)
+        if deleted:
+            logger.info("Deleted session history key=%s for user=%s", key, userId)
+            return {"status": "success", "deleted_keys": deleted}
+        else:
+            logger.info("delete_session: key not found %s", key)
+            return {"status": "not_found", "deleted_keys": 0}
+    except Exception as e:
+        logger.error("delete_session failed for user=%s session=%s: %s", userId, sessionId, e)
+        return {"status": "failed", "error": str(e)}
  
 @app.get("/")
 async def root():
@@ -635,7 +787,7 @@ if __name__ == "__main__":
    
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=8001,
         log_level="info",
         access_log=True,
