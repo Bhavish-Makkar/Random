@@ -115,87 +115,7 @@ except TypeError as te:
 except Exception as e:
     logger.error("Failed to create redis_client: %s", e)
     redis_client = None
-# ...existing code...
-# # ...existing code...
-# # Key namespace structure: <namespace>:<project>:<module>:history:<session_id>
-# NAMESPACE = "non-prod"
-# PROJECT = "occhub"
-# MODULE = "weather_mcp"
- 
-# # Concept test: single dummy session
-# DUMMY_SESSION_ID = "test-session-1"
- 
-# HISTORY_TTL_SECONDS = 60 * 60 * 24 # 1 day
-# MAX_HISTORY_MESSAGES = 20 # last 20 messages (user+assistant)
- 
-# def make_history_key(session_id: str) -> str:
-#     """
-#     <namespace>:<project>:<module>:chathistory:<session_id>
-#     """
-#     return f"{NAMESPACE}:{PROJECT}:{MODULE}:history:{session_id}"
- 
- 
-# # ...existing code...
- 
-# def append_turn_to_history(session_id: str, user_msg: str, assistant_msg: str) -> None:
-#     """
-#     Store one full turn (user + assistant) in Redis List.
-#     This function is defensive: it returns immediately if Redis is unavailable
-#     or if any Redis operation fails (logs the error).
-#     """
-#     if not redis_client:
-#         logger.debug("append_turn_to_history: redis_client is not available, skipping")
-#         return
- 
-#     key = make_history_key(session_id)
-#     user_entry = json.dumps({"role": "user", "content": user_msg}, ensure_ascii=False)
-#     assistant_entry = json.dumps({"role": "assistant", "content": assistant_msg}, ensure_ascii=False)
- 
-#     try:
-#         pipe = redis_client.pipeline()
-#         pipe.rpush(key, user_entry, assistant_entry)
-#         pipe.expire(key, HISTORY_TTL_SECONDS)
-#         pipe.execute()
-#     except Exception as e:
-#         logger.warning("append_turn_to_history failed for key=%s: %s", key, e)
- 
- 
-# def load_history_messages(session_id: str, max_messages: int = MAX_HISTORY_MESSAGES):
-#     """
-#     Load last N messages from Redis and return as list of dicts.
-#     Defensive: returns empty list if Redis is unavailable or on error.
-#     """
-#     if not redis_client:
-#         logger.debug("load_history_messages: redis_client is not available")
-#         return []
- 
-#     key = make_history_key(session_id)
-#     try:
-#         length = redis_client.llen(key)
-#     except Exception as e:
-#         logger.warning("Redis llen failed for key=%s: %s", key, e)
-#         return []
- 
-#     if not length:
-#         return []
- 
-#     start = max(0, length - max_messages)
-#     try:
-#         raw_msgs = redis_client.lrange(key, start, -1)
-#     except Exception as e:
-#         logger.warning("Redis lrange failed for key=%s: %s", key, e)
-#         return []
- 
-#     messages = []
-#     for raw in raw_msgs:
-#         try:
-#             messages.append(json.loads(raw))
-#         except Exception:
-#             continue
-#     return messages
- 
-# # ...existing code...
-# encoder = EventEncoder()
+
 
 NAMESPACE = "non-prod"
 PROJECT = "occhub"
@@ -619,37 +539,7 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
             print("🔚 MCP client interaction complete.")
  
  
-# @app.post("/get_data")
-# async def stream_response(userprompt: str = Query(...)):
-#     print(f"\n{'='*60}")
-#     print(f"🟡 NEW REQUEST: {userprompt}")
-#     print(f"{'='*60}\n")
-   
-#     async def event_generator():
-#         try:
-#             async for event in interact_with_server(userprompt):
-#                 # event is a string from encoder.encode()
-#                 # Ensure event ends with newline for SSE format
-#                 if not event.endswith('\n'):
-#                     event = event + '\n'
-#                 yield event
-#                 # Force flush with tiny delay
-#                 await asyncio.sleep(0)
-#         except Exception as e:
-#             print(f"❌ Generator error: {e}")
-#             traceback.print_exc()
- 
-#     return StreamingResponse(
-#         event_generator(),
-#         media_type="text/event-stream",
-#         headers={
-#             "Cache-Control": "no-cache, no-transform",
-#             "Connection": "keep-alive",
-#             "X-Accel-Buffering": "no",
-#             "Content-Type": "text/event-stream",
-#         },
-#     )
- 
+
 @app.post("/get_data")
 async def stream_response(
     userprompt: str = Query(...),
