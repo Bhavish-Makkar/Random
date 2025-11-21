@@ -58,6 +58,7 @@ export default function ChatPage() {
     }
   });
 
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [currentStatus, setCurrentStatus] = useState("online");
   const [toolCalls, setToolCalls] = useState([]);
@@ -244,6 +245,7 @@ const handleSelectRecentChat = (chatId) => {
 const sidebarChats = React.useMemo(() => {
   const base = [...recentChats];
 
+  // current active session ko list me reflect karo
   const idx = base.findIndex((c) => c.id === sessionId);
   if (idx >= 0) {
     base[idx] = {
@@ -252,7 +254,8 @@ const sidebarChats = React.useMemo(() => {
       messages,
     };
   } else {
-    base.unshift({
+    // agar yeh brand new session hai to list me add karo
+    base.push({
       id: sessionId,
       title: currentChatTitle,
       createdAt: Date.now(),
@@ -260,12 +263,13 @@ const sidebarChats = React.useMemo(() => {
     });
   }
 
-  // ❌ yeh line hata do:
-  // return base.slice(0, 3);
+  // 🧠 IMPORTANT: UI me newest chat upar chahiye
+  // createdAt DESC (newest first)
+  base.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  // ✅ ab saare sessions dikhne lagenge
   return base;
 }, [recentChats, sessionId, currentChatTitle, messages]);
+
 
     const deleteSession = async (sessionIdToDelete) => {
     if (!sessionIdToDelete) return;
@@ -605,18 +609,35 @@ const sidebarChats = React.useMemo(() => {
 return (
   <div className="page-shell">
     {/* LEFT: Side panel */}
-    <aside className="chat-sidebar">
-      <div className="sidebar-header">
-        <button
-          type="button"
-          className="sidebar-new-chat-btn"
-          onClick={handleNewChat}
-          disabled={isLoading}
-        >
-          <span className="sidebar-new-chat-icon">＋</span>
-          <span>New chat</span>
-        </button>
-      </div>
+    {isSidebarOpen && (
+      <aside className="chat-sidebar">
+        <div className="sidebar-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <button
+            type="button"
+            className="sidebar-new-chat-btn"
+            onClick={handleNewChat}
+            disabled={isLoading}
+          >
+            <span className="sidebar-new-chat-icon">＋</span>
+            <span>New chat</span>
+          </button>
+
+          {/* 👇 Chhota close icon (optional) */}
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(false)}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              fontSize: "16px",
+              lineHeight: 1,
+            }}
+            title="Close sidebar"
+          >
+            ×
+          </button>
+        </div>
 <div className="sidebar-section">
         <div className="sidebar-section-title">Chats</div>
         {sidebarChats.length === 0 ? (
@@ -675,7 +696,7 @@ return (
       </div>
     </aside>
 
-    
+    )} 
 
     {/* RIGHT: your existing chat UI */}
     <div className="chat-wrapper">
@@ -702,13 +723,22 @@ return (
         <div className="chat-header-right">
           <button
             className="header-pill"
+            onClick={() => setIsSidebarOpen((prev) => !prev)}
+            type="button"
+          >
+            {isSidebarOpen ? "Hide chats" : "Show chats"}
+          </button>
+
+          <button
+            className="header-pill"
             onClick={handleNewChat}
+            type="button"
           >
             New Chat
           </button>
         </div>
-      </header>
-
+      </header> 
+      
       <main className="chat-main" ref={chatRef} onScroll={onScroll}>
         <AnimatePresence>
           {messages.map((msg, index) => {
@@ -925,3 +955,5 @@ return (
   </div>
 );
 }
+
+
