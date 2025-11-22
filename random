@@ -1,4 +1,201 @@
 import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+ 
+access_token =
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Prefer": 'outlook.body-content-type="html"'
+}
+ 
+def get_latest_mail_with_subject(keyword: str):
+    user_email = "metstratosphere@goIndiGo.in"
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
+        "?$top=1"
+        "&$orderby=receivedDateTime desc"
+        f"&$search=\"subject:{keyword}\""
+    )
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+ 
+    if "value" not in data or len(data["value"]) == 0:
+        raise ValueError("No email found matching your query")
+    return data["value"][0]
+ 
+def get_message_body_html(message_id: str) -> str:
+    user_email = 
+    url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages?$select=sender,subject,bodyPreview"
+    # url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}?$select=subject,body"
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    print("Subject:", data.get("subject"))
+    return data["body"]["content"]
+ 
+def extract_first_table_to_df(html: str) -> pd.DataFrame:
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if table is None:
+        raise ValueError("No table found in email body")
+ 
+    rows = []
+    for tr in table.find_all("tr"):
+        cells = tr.find_all(["td", "th"])
+        row = [c.get_text(strip=True) for c in cells]
+        if row:
+            rows.append(row)
+ 
+    if len(rows) < 2:
+        raise ValueError("Table found but not enough data")
+ 
+    header = rows[0]
+    data_rows = rows[1:]
+    return pd.DataFrame(data_rows, columns=header)
+ 
+def main():
+    # yahan apna subject keyword daalo
+    keyword = "Daily Report"
+    message = get_latest_mail_with_subject(keyword)
+    message_id = message["id"]
+ 
+    body_html = get_message_body_html(message_id)
+    df = extract_first_table_to_df(body_html)
+ 
+    output_file = "email_table_output.xlsx"
+    df.to_excel(output_file, index=False)
+    print(f"Saved table to {output_file}")
+ 
+if __name__ == "__main__":
+    main()
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> .\env_bruno\Scripts\activate; python bruno1.py
+
+Traceback (most recent call last):
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 72, in <module>
+
+    main()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 61, in main
+
+    message = get_latest_mail_with_subject(keyword)
+
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 22, in get_latest_mail_with_subject
+
+    resp.raise_for_status()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\env_bruno\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
+
+    raise HTTPError(http_error_msg, response=self)
+
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://graph.microsoft.com/v1.0/users/metstratosphere@goIndiGo.in/messages?$top=1&$orderby=receivedDateTime%20desc&$filter=contains(subject,%27Daily%20Report%27)
+
+(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> .\env_bruno\Scripts\activate; pip install openpyxl
+
+Collecting openpyxl
+
+  Downloading openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+
+Collecting et-xmlfile (from openpyxl)
+
+  Downloading et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+
+Downloading openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+
+Downloading et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+
+Installing collected packages: et-xmlfile, openpyxl
+
+Successfully installed et-xmlfile-2.0.0 openpyxl-3.1.5                                                          
+
+(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> python bruno1.py
+
+Traceback (most recent call last):
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 79, in <module>
+
+    main()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 68, in main
+
+    message = get_latest_mail_with_subject(keyword)
+
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 22, in get_latest_mail_with_subject     
+
+    resp.raise_for_status()
+
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://graph.microsoft.com/v1.0/me/messages?$top=10&$orderby=receivedDateTime%20desc&$select=id,subject,receivedDateTime
+
+(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> python bruno1.py
+
+Error: 400
+
+Response: {"error":{"code":"BadRequest","message":"/me request is only valid with delegated authentication flow.","innerError":{"date":"2025-11-22T07:47:49","request-id":"ad36ab06-4c28-4d26-9fbf-3c98cff7d512","client-request-id":"ad36ab06-4c28-4d26-9fbf-3c98cff7d512"}}}
+
+Traceback (most recent call last):
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 82, in <module>
+
+    main()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 71, in main
+
+    message = get_latest_mail_with_subject(keyword)
+
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 25, in get_latest_mail_with_subject
+
+    resp.raise_for_status()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\env_bruno\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
+
+    raise HTTPError(http_error_msg, response=self)
+
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://graph.microsoft.com/v1.0/me/messages?$top=10&$orderby=receivedDateTime%20desc&$select=id,subject,receivedDateTime
+
+(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> python bruno1.py
+
+Traceback (most recent call last):
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 72, in <module>
+
+    main()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 61, in main
+
+    message = get_latest_mail_with_subject(keyword)
+
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\bruno1.py", line 21, in get_latest_mail_with_subject
+
+    resp.raise_for_status()
+
+  File "C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo\env_bruno\Lib\site-packages\requests\models.py", line 1026, in raise_for_status
+
+    raise HTTPError(http_error_msg, response=self)
+
+requests.exceptions.HTTPError: 400 Client Error: Bad Request for url: https://graph.microsoft.com/v1.0/users/metstratosphere@goIndiGo.in/messages?$top=1&$orderby=receivedDateTime%20desc&$filter=contains(subject,%27Daily%20Report%27)
+
+(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo>
+ import requests
 
 access_token = "YOUR_ACCESS_TOKEN_HERE"
 headers = {
