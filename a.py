@@ -2,34 +2,261 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import time
 import os
 import re
  
+ 
+ 
+ 
+# Load environment variables
+def load_env(path: str = ".env") -> None:
+    """Minimal .env loader (no external dependency)."""
+    if not os.path.exists(path):
+        return
+   
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+           
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"\'')
+               
+                if key not in os.environ:
+                    os.environ[key] = value
+ 
+# Load .env early
+load_env()
+ 
+# Check environment
+IS_LOCAL_ENV = os.environ.get("ENV", "").lower() == "local"
+ 
 # ------------- CONFIG -------------
 ACCESS_TOKEN = 
-USER_EMAIL
+USER_EMAIL=
  
 headers = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Prefer": 'outlook.body-content-type="html"'
 }
  
-# Create output directory for individual email JSONs
+# Create output directory only for local environment
 OUTPUT_DIR = "email_extracts"
-if not os.path.exists(OUTPUT_DIR):
+if IS_LOCAL_ENV and not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
  
-# ------------- HELPERS -------------
  
 def sanitize_filename(filename):
     """Remove invalid characters from filename"""
     return re.sub(r'[<>:"/\\|?*]', '_', filename)
  
+def convert_to_ist_format(utc_datetime_str):
+    """Convert UTC datetime string to IST format like in mod.json"""
+    try:
+        # Parse the UTC datetime
+        utc_dt = datetime.fromisoformat(utc_datetime_str.replace('Z', '+00:00'))
+        # Convert to IST (UTC+5:30)
+        ist_offset = timezone(timedelta(hours=5, minutes=30))
+        ist_dt = utc_dt.astimezone(ist_offset)
+        return ist_dt.strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
+    except:
+        # Fallback to current time in IST format
+        return datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
+ 
+# ------------- HTML PARSING AND VALIDATION FUNCTIONS -------------
+ 
+def extract_tables_from_html_body(html_content):
+    """
+    Extract all table data from HTML body content.
+    Returns structured table data with headers and rows.
+    """
+    if not html_content or not html_content.strip():
+        return []
+       
+    soup = BeautifulSoup(html_content, "html.parser")
+    tables = soup.find_all("table")
+   
+    if not tables:
+        return []
+   
+    extracted_tables = []
+   
+    for table_idx, table in enumerate(tables):
+        table_rows = table.find_all("tr")
+       
+        if len(table_rows) < 2:  # Need at least header + 1 data row
+            continue
+           
+        # Extract header row
+        header_row = None
+        data_rows = []
+       
+        for row in table_rows:
+            cells = row.find_all(["td", "th"])
+            if not cells:
+                continue
+               
+            cell_texts = [cell.get_text(strip=True) for cell in cells]
+           
+            # First row with content becomes header
+            if header_row is None:
+                header_row = cell_texts
+            else:
+                data_rows.append(cell_texts)
+       
+        # Convert to structured format
+        if header_row and data_rows:
+            table_data = []
+            for row in data_rows:
+                # Ensure row has same number of columns as header
+                while len(row) < len(header_row):
+                    row.append("")
+               
+                # Create row dictionary
+                row_dict = {}
+                for i, header in enumerate(header_row):
+                    if i < len(row):
+                        row_dict[header.strip() if header else f"Column_{i+1}"] = row[i].strip()
+                    else:
+                        row_dict[header.strip() if header else f"Column_{i+1}"] = ""
+               
+                table_data.append(row_dict)
+           
+            if table_data:
+                extracted_tables.append({
+                    "table_index": table_idx,
+                    "headers": header_row,
+                    "data": table_data
+                })
+   
+    return extracted_tables
+ 
+def check_mandatory_fields_in_html(html_content):
+    """
+    Check if HTML body content contains all 5 mandatory fields.
+    Returns True if all fields are present, False otherwise.
+   
+    Mandatory fields:
+    - station
+    - weatherPhenomenon
+    - operationProbability
+    - advisoryTimePeriodStartUTC
+    - advisoryTimePeriodEndUTC
+    """
+    if not html_content:
+        return False
+   
+    # Convert to lowercase for case-insensitive matching
+    html_lower = html_content.lower()
+   
+    # Define field patterns to search for
+    mandatory_patterns = [
+        ["station"],
+        ["weather", "phenomenon"],
+        ["operation", "probability", "operational", "probability"],
+        ["advisory", "start", "utc", "period", "start", "utc"],
+        ["advisory", "end", "utc", "period", "end", "utc"]
+    ]
+   
+    fields_found = 0
+   
+    for pattern_group in mandatory_patterns:
+        field_found = False
+        for pattern in pattern_group:
+            if pattern in html_lower:
+                field_found = True
+                break
+        if field_found:
+            fields_found += 1
+   
+    return fields_found >= 5
+ 
+def extract_weather_stations_from_tables(tables):
+    """
+    Extract weather station data from tables with exact values from HTML.
+    NO artificial defaults - only use original values from email content.
+   
+    Returns list of station dictionaries with original values.
+    """
+    stations = []
+   
+    for table in tables:
+        headers = table.get("headers", [])
+        table_data = table.get("data", [])
+       
+        if not headers or not table_data:
+            continue
+       
+        # Map headers to our field names (case-insensitive matching)
+        header_mapping = {}
+        for i, header in enumerate(headers):
+            header_lower = header.lower().strip()
+           
+            if "station" in header_lower:
+                header_mapping["station"] = i
+            elif "weather" in header_lower and "phenomenon" in header_lower:
+                header_mapping["weatherPhenomenon"] = i
+            elif "operation" in header_lower and "probability" in header_lower:
+                header_mapping["operationProbability"] = i
+            elif ("advisory" in header_lower and "start" in header_lower and "utc" in header_lower) or \
+                 ("start" in header_lower and "utc" in header_lower):
+                header_mapping["advisoryTimePeriodStartUTC"] = i
+            elif ("advisory" in header_lower and "end" in header_lower and "utc" in header_lower) or \
+                 ("end" in header_lower and "utc" in header_lower):
+                header_mapping["advisoryTimePeriodEndUTC"] = i
+            elif ("advisory" in header_lower and "start" in header_lower and ("lt" in header_lower or "local" in header_lower)) or \
+                 ("start" in header_lower and ("lt" in header_lower or "local" in header_lower)):
+                header_mapping["advisoryTimePeriodStartLT"] = i
+            elif ("advisory" in header_lower and "end" in header_lower and ("lt" in header_lower or "local" in header_lower)) or \
+                 ("end" in header_lower and ("lt" in header_lower or "local" in header_lower)):
+                header_mapping["advisoryTimePeriodEndLT"] = i
+       
+        # Extract station data from each row
+        for row_dict in table_data:
+            station_entry = {}
+           
+            # Extract values using exact positions from headers
+            for field_name, header_index in header_mapping.items():
+                if header_index < len(headers):
+                    header_name = headers[header_index]
+                    value = row_dict.get(header_name, "").strip()
+                   
+                    if value:  # Only add non-empty values
+                        if field_name == "station":
+                            # Validate station code (3 letters, uppercase)
+                            if len(value) == 3 and value.isalpha() and value.isupper():
+                                station_entry[field_name] = value
+                        elif field_name == "operationProbability":
+                            # Convert to integer
+                            try:
+                                station_entry[field_name] = int(float(value))
+                            except (ValueError, TypeError):
+                                continue  # Skip if conversion fails
+                        else:
+                            # Use exact value for other fields
+                            station_entry[field_name] = value
+           
+            # Only add station if it has ALL 5 mandatory fields
+            mandatory_fields = ["station", "weatherPhenomenon", "operationProbability",
+                              "advisoryTimePeriodStartUTC", "advisoryTimePeriodEndUTC"]
+           
+            if all(field in station_entry for field in mandatory_fields):
+                stations.append(station_entry)
+   
+    return stations
+ 
+# ------------- EMAIL PROCESSING FUNCTIONS -------------
  
 def get_all_messages(page_size: int = 50, max_pages: int = None):
-    """Get all messages from the mailbox with pagination."""
+    """
+    Get all messages from the mailbox with pagination.
+    Returns a list of message objects with basic info.
+    """
     url = (
         f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages"
         f"?$top={page_size}"
@@ -55,16 +282,20 @@ def get_all_messages(page_size: int = 50, max_pages: int = None):
        
         print(f"Retrieved {len(messages)} messages from page {page_count + 1}")
        
+        # Check for next page
         url = data.get("@odata.nextLink")
         page_count += 1
+       
+        # Add small delay to avoid rate limiting
         time.sleep(0.5)
    
     print(f"Total messages retrieved: {len(all_messages)}")
     return all_messages
  
- 
 def get_message_body_html(message_id: str) -> str:
-    """Fetch full message body (HTML) for given message_id."""
+    """
+    Fetch full message body (HTML) for given message_id.
+    """
     url = (
         f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages/{message_id}"
         "?$select=subject,body"
@@ -79,263 +310,136 @@ def get_message_body_html(message_id: str) -> str:
     body = data.get("body", {})
     return body.get("content", "")
  
- 
-def extract_weather_stations_from_table(html: str):
+def process_single_email(message):
     """
-    Extract weather station data in the format similar to mod.json.
-    This function looks for tables with weather advisory data.
+    Process a single email and extract weather advisory data if valid.
+    Returns weather advisory dict or None if invalid.
     """
-    if not html.strip():
-        return []
-       
-    soup = BeautifulSoup(html, "html.parser")
-    tables = soup.find_all("table")
-   
-    if not tables:
-        return []
-   
-    stations = []
-   
-    for table in tables:
-        rows = table.find_all("tr")
-        if len(rows) < 2:
-            continue
-           
-        # Extract all text content from table
-        table_text = table.get_text(separator='\n', strip=True)
-        lines = [line.strip() for line in table_text.split('\n') if line.strip()]
-       
-        # Look for station codes (3-letter airport codes)
-        station_codes = []
-        for line in lines:
-            # Match 3-letter airport codes
-            if re.match(r'^[A-Z]{3}$', line):
-                station_codes.append(line)
-       
-        # For each station found, create a station entry
-        for station_code in station_codes:
-            # Skip if it's a header or common word
-            if station_code in ['ROW', 'THE', 'AND', 'FOR', 'ALL']:
-                continue
-               
-            station_entry = {
-                "station": station_code,
-                "weatherPhenomenon": "FG",  # Default to fog, can be enhanced
-                "operationProbability": 50,  # Default probability
-                "advisoryTimePeriodStartUTC": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "advisoryTimePeriodEndUTC": (datetime.now().replace(hour=datetime.now().hour + 2)).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "advisoryTimePeriodStartLT": datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ+05:30"),
-                "advisoryTimePeriodEndLT": (datetime.now().replace(hour=datetime.now().hour + 2)).strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
-            }
-            stations.append(station_entry)
-   
-    return stations
- 
- 
-def extract_enhanced_weather_data(html: str, email_date: str):
-    """
-    Enhanced extraction that tries to parse weather phenomena and probabilities.
-    """
-    if not html.strip():
-        return []
-       
-    soup = BeautifulSoup(html, "html.parser")
-   
-    # Get the full text to analyze
-    full_text = soup.get_text(separator=' ', strip=True)
-   
-    # Common weather phenomena patterns
-    weather_patterns = {
-        'FG': ['fog', 'mist', 'visibility'],
-        'TSRA': ['thunderstorm', 'rain', 'precipitation'],
-        'SN': ['snow', 'snowing'],
-        'BR': ['haze', 'hazy'],
-        'DU': ['dust', 'dusty'],
-        'SA': ['sand', 'sandstorm']
-    }
-   
-    # Extract station codes
-    station_codes = re.findall(r'\b[A-Z]{3}\b', full_text)
-    # Filter out common non-station codes
-    exclude_codes = ['THE', 'AND', 'FOR', 'ALL', 'UTC', 'IST', 'GMT', 'PST', 'EST', 'MST', 'CST']
-    station_codes = [code for code in station_codes if code not in exclude_codes]
-   
-    # Remove duplicates while preserving order
-    unique_stations = []
-    for station in station_codes:
-        if station not in unique_stations:
-            unique_stations.append(station)
-   
-    stations = []
-   
-    for station_code in unique_stations:
-        # Determine weather phenomenon based on text content
-        weather_phenom = "FG"  # Default
-        for phenom, keywords in weather_patterns.items():
-            if any(keyword.lower() in full_text.lower() for keyword in keywords):
-                weather_phenom = phenom
-                break
-       
-        # Try to extract probability if mentioned
-        probability = 50  # Default
-        prob_match = re.search(r'(\d+)%', full_text)
-        if prob_match:
-            probability = int(prob_match.group(1))
-       
-        # Parse email date for timing
-        try:
-            email_dt = datetime.fromisoformat(email_date.replace('Z', '+00:00'))
-        except:
-            email_dt = datetime.now()
-       
-        # Create advisory time periods (example: 2 hours from email time)
-        start_time = email_dt
-        end_time = email_dt.replace(hour=email_dt.hour + 2) if email_dt.hour < 22 else email_dt.replace(hour=23, minute=59)
-       
-        station_entry = {
-            "station": station_code,
-            "weatherPhenomenon": weather_phenom,
-            "operationProbability": probability,
-            "advisoryTimePeriodStartUTC": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "advisoryTimePeriodEndUTC": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "advisoryTimePeriodStartLT": start_time.strftime("%Y-%m-%dT%H:%M:%SZ+05:30"),
-            "advisoryTimePeriodEndLT": end_time.strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
-        }
-        stations.append(station_entry)
-   
-    return stations
- 
- 
-def process_single_email(message, index):
-    """Process a single email and create individual JSON file."""
-    print(f"Processing email {index}: {message.get('subject', 'No Subject')[:50]}...")
-   
-    email_data = {
-        "message_id": message["id"],
-        "subject": message.get("subject", ""),
-        "received_date": message.get("receivedDateTime", ""),
-        "from": message.get("from", {}).get("emailAddress", {}).get("address", "") if message.get("from") else "",
-        "processing_status": "success"
-    }
-   
     try:
-        # Get email body
+        # Get email HTML body
         body_html = get_message_body_html(message["id"])
+        if not body_html:
+            return None
        
-        if body_html:
-            # Extract weather station data
-            stations = extract_enhanced_weather_data(body_html, message.get("receivedDateTime", ""))
-           
-            # Create weather advisory format similar to mod.json
-            weather_advisory = {
-                "createdAt": datetime.now().isoformat() + "+05:30",
-                "emailSubject": message.get("subject", ""),
-                "emailDate": message.get("receivedDateTime", ""),
-                "emailFrom": message.get("from", {}).get("emailAddress", {}).get("address", "") if message.get("from") else "",
-                "stations": stations
-            }
-           
-            # Create filename from subject and date
-            subject_clean = sanitize_filename(message.get("subject", "No_Subject")[:50])
-            date_clean = message.get("receivedDateTime", "")[:10].replace("-", "_")
-            filename = f"{index:03d}_{date_clean}_{subject_clean}.json"
-            filepath = os.path.join(OUTPUT_DIR, filename)
-           
-            # Save individual email JSON
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(weather_advisory, f, indent=2, ensure_ascii=False)
-           
-            print(f"  Found {len(stations)} station(s) - Saved to {filename}")
-           
-            return {
-                "email_data": email_data,
-                "weather_advisory": weather_advisory,
-                "filename": filename,
-                "stations_count": len(stations)
-            }
-        else:
-            print("  No body content")
-            return {
-                "email_data": email_data,
-                "weather_advisory": None,
-                "filename": None,
-                "stations_count": 0
-            }
-           
-    except Exception as e:
-        print(f"  Error processing email: {e}")
-        email_data["processing_status"] = f"error: {str(e)}"
-        return {
-            "email_data": email_data,
-            "weather_advisory": None,
-            "filename": None,
-            "stations_count": 0
+        # Check if HTML contains mandatory fields
+        if not check_mandatory_fields_in_html(body_html):
+            print("   ❌ Missing mandatory fields in HTML body - Skipping")
+            return None
+       
+        print("   ✅ All mandatory fields found in HTML - Processing...")
+       
+        # Extract tables from HTML
+        tables = extract_tables_from_html_body(body_html)
+        if not tables:
+            print("   ❌ No tables found in HTML - Skipping")
+            return None
+       
+        # Extract weather stations with original values
+        stations = extract_weather_stations_from_tables(tables)
+        if not stations:
+            print("   ❌ No valid weather stations extracted - Skipping")
+            return None
+       
+        # Create weather advisory with original values
+        weather_advisory = {
+            "createdAt": convert_to_ist_format(message.get("receivedDateTime", "")),
+            "stations": stations
         }
- 
+       
+        return weather_advisory
+       
+    except Exception as e:
+        print(f"   ❌ Error processing email: {e}")
+        return None
  
 def process_all_emails():
-    """Process all emails and extract weather data."""
-    print("Starting to fetch all messages...")
-   
-    # Get all messages (limit pages for testing)
-    all_messages = get_all_messages(page_size=50, max_pages=5)  # Remove max_pages=5 to get all emails
-   
-    results = {
-        "extraction_date": datetime.now().isoformat(),
-        "total_emails_processed": 0,
-        "emails_with_weather_data": 0,
-        "total_stations_found": 0,
-        "processed_emails": []
-    }
-   
-    for idx, message in enumerate(all_messages, 1):
-        result = process_single_email(message, idx)
-        results["processed_emails"].append(result)
-        results["total_emails_processed"] += 1
+    """
+    Process all emails and extract weather advisory data.
+    Only processes emails with all 5 mandatory fields.
+    """
+    if not IS_LOCAL_ENV:
+        print("❌ File creation only available in local environment (ENV=local)")
+        return 0, 0
        
-        if result["weather_advisory"] and result["stations_count"] > 0:
-            results["emails_with_weather_data"] += 1
-            results["total_stations_found"] += result["stations_count"]
+    print("🔍 Starting email processing with HTML body validation...")
+    print("📋 Required fields: station, weatherPhenomenon, operationProbability, advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC")
+    print("🎯 Only original values from email content will be used (no artificial defaults)")
+   
+    # Get all messages without limits
+    all_messages = get_all_messages(page_size=50)
+    successful_extractions = 0
+    skipped_emails = 0
+   
+    for idx, message in enumerate(all_messages):
+        subject = message.get('subject', 'No Subject')[:50]
+        print(f"\nProcessing email {idx + 1}/{len(all_messages)}: {subject}...")
        
-        # Add delay to avoid rate limiting
+        # Process the email
+        weather_advisory = process_single_email(message)
+       
+        if weather_advisory:
+            # Save to JSON file in local environment
+            if IS_LOCAL_ENV:
+                # Create filename from subject and date
+                subject_clean = sanitize_filename(message.get("subject", "No_Subject")[:30])
+                date_clean = message.get("receivedDateTime", "")[:10].replace("-", "_")
+                filename = f"{idx + 1:03d}_{date_clean}_{subject_clean}.json"
+                filepath = os.path.join(OUTPUT_DIR, filename)
+               
+                # Save weather advisory JSON
+                with open(filepath, "w", encoding="utf-8") as f:
+                    json.dump(weather_advisory, f, indent=2, ensure_ascii=False)
+               
+                station_count = len(weather_advisory["stations"])
+                print(f"   ✅ Extracted {station_count} valid station(s) - Saved to {filename}")
+           
+            successful_extractions += 1
+        else:
+            skipped_emails += 1
+       
+        # Add small delay to avoid rate limiting
         time.sleep(0.2)
    
-    return results
- 
+    print(f"\n" + "="*60)
+    print("🎯 EMAIL PROCESSING SUMMARY")
+    print(f"="*60)
+    print(f"📧 Total emails processed: {len(all_messages)}")
+    print(f"✅ Successful extractions: {successful_extractions}")
+    print(f"⏭️  Skipped emails: {skipped_emails}")
+    print(f"📁 Files saved in: {OUTPUT_DIR}/")
+   
+    return len(all_messages), successful_extractions
  
 def main():
     try:
-        print("Starting weather advisory extraction process...")
-        print(f"Output directory: {OUTPUT_DIR}")
+        print("="*60)
+        print("🌤️  WEATHER ADVISORY EMAIL PROCESSOR V2")
+        print("="*60)
+        print("🔍 HTML Body Content Parser with Original Value Extraction")
+        print("📋 Mandatory Fields Validation: 5 required fields")
+        print("🚫 No Artificial Defaults: Only original email values used")
+        print()
        
         # Process all emails
-        results = process_all_emails()
+        total_processed, successful = process_all_emails()
        
-        # Save summary results
-        summary_file = "weather_extraction_summary.json"
-        with open(summary_file, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=2, ensure_ascii=False)
-       
-        print(f"\n" + "="*60)
-        print("EXTRACTION COMPLETE!")
-        print(f"="*60)
-        print(f"Total emails processed: {results['total_emails_processed']}")
-        print(f"Emails with weather data: {results['emails_with_weather_data']}")
-        print(f"Total stations found: {results['total_stations_found']}")
-        print(f"Individual email JSONs saved in: {OUTPUT_DIR}/")
-        print(f"Summary saved to: {summary_file}")
+        print(f"\n" + "="*50)
+        print("✅ PROCESSING COMPLETE!")
+        print(f"="*50)
+        print(f"Total emails processed: {total_processed}")
+        print(f"Successful extractions: {successful}")
        
         # List all created files
-        print(f"\nCreated files:")
-        for result in results["processed_emails"]:
-            if result["filename"]:
-                print(f"  - {result['filename']} ({result['stations_count']} stations)")
+        if successful > 0 and IS_LOCAL_ENV:
+            print(f"\n📁 Created files in {OUTPUT_DIR}/:")
+            for filename in sorted(os.listdir(OUTPUT_DIR)):
+                if filename.endswith('.json'):
+                    print(f"  - {filename}")
        
     except requests.HTTPError as e:
-        print("HTTPError:", e)
+        print(f"❌ HTTP Error: {e}")
     except Exception as e:
-        print("Error:", e)
- 
+        print(f"❌ Error: {e}")
  
 if __name__ == "__main__":
     main()
