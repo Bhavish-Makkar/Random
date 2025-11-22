@@ -1,0 +1,17 @@
+import requests
+
+access_token = "YOUR_ACCESS_TOKEN_HERE"
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Prefer": 'outlook.body-content-type="text"'
+}
+
+# Agar logged-in user ka mailbox
+url = "https://graph.microsoft.com/v1.0/me/messages?$select=sender,subject,bodyPreview"
+
+# Agar dusre user ka mailbox (replace userEmail)
+# user_email = "xyz@contoso.com"
+# url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages?$select=sender,subject,bodyPreview"
+
+response = requests.get(url, headers=headers)
+print(response.status_code, response.text)
