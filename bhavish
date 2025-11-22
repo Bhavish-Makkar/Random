@@ -1,0 +1,67 @@
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup
+
+# Use client credential flow (app id + secret/certificate) to get token
+access_token = "YOUR_APP_ONLY_ACCESS_TOKEN_HERE"
+
+headers = {
+    "Authorization": f"Bearer {access_token}",
+    "Prefer": 'outlook.body-content-type="html"'
+}
+
+def get_latest_mail_with_subject_for_user(user_email: str, keyword: str):
+    url = (
+        f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
+        "?$top=1"
+        "&$orderby=receivedDateTime desc"
+        f"&$search=\"subject:{keyword}\""
+    )
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    if "value" not in data or len(data["value"]) == 0:
+        raise ValueError("No email found matching your query")
+    return data["value"][0]
+
+def get_message_body_html_for_user(user_email: str, message_id: str) -> str:
+    url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages/{message_id}?$select=body"
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["body"]["content"]
+
+def extract_first_table_to_df(html: str) -> pd.DataFrame:
+    from bs4 import BeautifulSoup
+    import pandas as pd
+
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if table is None:
+        raise ValueError("No table found in email body")
+
+    rows = []
+    for tr in table.find_all("tr"):
+        cells = tr.find_all(["td", "th"])
+        row = [c.get_text(strip=True) for c in cells]
+        if row:
+            rows.append(row)
+    if len(rows) < 2:
+        raise ValueError("Table found but not enough data")
+    header = rows[0]
+    data_rows = rows[1:]
+    return pd.DataFrame(data_rows, columns=header)
+
+def main():
+    user_email = "metstratosphere@goIndiGo.in"
+    keyword = "Daily Report"
+    message = get_latest_mail_with_subject_for_user(user_email, keyword)
+    message_id = message["id"]
+    body_html = get_message_body_html_for_user(user_email, message_id)
+    df = extract_first_table_to_df(body_html)
+    output_file = "email_table_output_app_only.xlsx"
+    df.to_excel(output_file, index=False)
+    print(f"Saved table to {output_file}")
+
+if __name__ == "__main__":
+    main()
