@@ -1,0 +1,60 @@
+import requests
+ 
+ACCESS_TOKEN = "YOUR_ACCESS_TOKEN_HERE"
+USER_EMAIL = "other_user@yourtenant.com"  # mailbox you are operating on
+MESSAGE_ID = "AAMkADk3Z..."               # ID of the specific email to move
+ 
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+ 
+headers = {
+    "Authorization": f"Bearer {ACCESS_TOKEN}",
+    "Content-Type": "application/json"
+}
+ 
+def get_archive_folder_id() -> str | None:
+    """
+    Fetch the Archive folder and return its id.
+    Uses the well-known 'Archive' folder name.
+    """
+    url = f"{GRAPH_BASE}/users/{USER_EMAIL}/mailFolders/Archive"
+    resp = requests.get(url, headers=headers)
+ 
+    if resp.status_code == 200:
+        data = resp.json()
+        return data.get("id")
+    else:
+        print("Failed to get Archive folder.")
+        print("Status:", resp.status_code)
+        print("Response:", resp.text)
+        return None
+ 
+ 
+def move_message_to_archive(message_id: str):
+    """
+    Move the given message to the Archive folder.
+    """
+    archive_id = get_archive_folder_id()
+    if not archive_id:
+        print("Could not resolve Archive folder id.")
+        return
+ 
+    url = f"{GRAPH_BASE}/users/{USER_EMAIL}/messages/{message_id}/move"
+    body = {
+        "destinationId": archive_id
+    }
+ 
+    resp = requests.post(url, headers=headers, json=body)
+ 
+    if resp.status_code == 201:  # Created = moved successfully
+        moved_msg = resp.json()
+        print("Message moved to Archive.")
+        print("New folder id:", moved_msg.get("parentFolderId"))
+        print("New message id:", moved_msg.get("id"))
+    else:
+        print("Failed to move message.")
+        print("Status:", resp.status_code)
+        print("Response:", resp.text)
+ 
+ 
+if __name__ == "__main__":
+    move_message_to_archive(MESSAGE_ID)
