@@ -33,9 +33,8 @@ IS_LOCAL_ENV = os.environ.get("ENV", "").lower() == "local"
  
 # ===================== CONFIG =====================
  
- 
-ACCESS_TOKEN =
-USER_EMAIL
+ACCESS_TOKEN ="eyJ0eXAiOiJKV1QiLCJub25jZSI6IktSbV80cU9DY0FwQVhEZkVGR2VQaThmakpJTFNlSW14cnl3RnFKczhKRUEiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL2dyYXBoLm1pY3Jvc29mdC5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC83M2YyZTcxNC1hMzJlLTQ2OTctOTQ0OS1kZmZlMWRmOGE1ZDUvIiwiaWF0IjoxNzYzODY5Nzc2LCJuYmYiOjE3NjM4Njk3NzYsImV4cCI6MTc2Mzg3MzY3NiwiYWlvIjoiazJKZ1lCRDhQeTNiOUh1ZTZxTzBZTFVyU1NhdkFBPT0iLCJhcHBfZGlzcGxheW5hbWUiOiJPQ0Mgb25lIGFwcCAtIFBPQyIsImFwcGlkIjoiMzhhZTcyYjUtNzMxNi00YzkxLTk4ZjgtMDEzZTQ2MjcyMjA5IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1LyIsImlkdHlwIjoiYXBwIiwib2lkIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwicmgiOiIxLkFWTUFGT2Z5Y3k2amwwYVVTZF8tSGZpbDFRTUFBQUFBQUFBQXdBQUFBQUFBQUFERkFBQlRBQS4iLCJyb2xlcyI6WyJQcmVzZW5jZS5SZWFkLkFsbCIsIk1haWwuUmVhZEJhc2ljLkFsbCIsIlVzZXIuUmVhZC5BbGwiLCJNYWlsLlJlYWQiXSwic3ViIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwidGVuYW50X3JlZ2lvbl9zY29wZSI6IkFTIiwidGlkIjoiNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1IiwidXRpIjoiX1c1YklUNWFLa3Excm5KOFJtczNBQSIsInZlciI6IjEuMCIsIndpZHMiOlsiMDk5N2ExZDAtMGQxZC00YWNiLWI0MDgtZDVjYTczMTIxZTkwIl0sInhtc19hY2QiOjE3NDAxMTA2MTQsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6IkVZR1NwQjhmWExIdVVsTll6dXpVUm5UOWRlWEFzWnlSZTR4cGJnc3oyMWdCYW1Gd1lXNWxZWE4wTFdSemJYTSIsInhtc19pZHJlbCI6IjcgMjYiLCJ4bXNfcmQiOiIwLjQyTGxZQkppREJZUzRXQVhFcmhwRWg5WE5udUc5emJET00tb1JOdnJRRkZPSVlGVHNfTFlKUU9kUERaZkxXbzZtYVExRFNqS0lTVEF6QUFCQjZBMEFBIiwieG1zX3N1Yl9mY3QiOiIzIDkiLCJ4bXNfdGNkdCI6MTUxMDgyMTQ0NywieG1zX3RudF9mY3QiOiIzIDQifQ.rq3SFMqAnwVuLEGY0--MLx5Q1pfQJOqlzo7BNwNjgN3Lo3zqCXKlmVnor8VWvV4p1D-Z2mdsFOzWVtLaMqP1Bxu_Wsc3QhjVyVYbU5VrDuS4PxSKRBQGS3TSgSAZ9qJ59WB2V599Q8JoOaLfDnmwZFb876-olKEisviYvpwQWpiHtEXcZnyoc6fNZzrb2Kr9KwvvbiXuwYy7drTa6e6CetaYYO2aD82pKiT4r0Rq14PEsB6wewijMfRaDZRiD829AR_Fd7yMkMS58QEb6uPoG1SFmRurubZ-JNCvoc81Pqb3G6x8rJpAupwa7_o9KgjEO0-AJLhhiXORcbQZ1Mi8eg"
+USER_EMAIL = "metstratosphere@goIndiGo.in"
  
 if not ACCESS_TOKEN:
     raise RuntimeError("ACCESS_TOKEN is not set. Please set it in .env or code.")
@@ -51,20 +50,126 @@ OUTPUT_DIR = "email_extracts"
 if IS_LOCAL_ENV and not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
  
+IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
+ 
+MONTH_MAP = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4,
+    "may": 5, "jun": 6, "jul": 7, "aug": 8,
+    "sep": 9, "oct": 10, "nov": 11, "dec": 12
+}
+ 
 # ===================== UTILS =====================
  
 def sanitize_filename(filename: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', '_', filename)
  
 def convert_to_ist_format(utc_datetime_str: str) -> str:
+    """
+    Keep as-is (tumhari existing createdAt formatting).
+    """
     try:
         utc_dt = datetime.fromisoformat(utc_datetime_str.replace('Z', '+00:00'))
-        ist_offset = timezone(timedelta(hours=5, minutes=30))
-        ist_dt = utc_dt.astimezone(ist_offset)
+        ist_dt = utc_dt.astimezone(IST_OFFSET)
         return ist_dt.strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
     except Exception:
-        ist_offset = timezone(timedelta(hours=5, minutes=30))
-        return datetime.now(ist_offset).strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
+        ist_dt = datetime.now(IST_OFFSET)
+        return ist_dt.strftime("%Y-%m-%dT%H:%M:%SZ+05:30")
+ 
+def parse_mail_received_datetime(dt_str: str):
+    """
+    Mail ke receivedDateTime ko datetime object me convert karo (UTC aware).
+    """
+    if not dt_str:
+        return None
+    try:
+        # Graph format: 2025-11-22T13:45:10Z
+        return datetime.fromisoformat(dt_str.replace('Z', '+00:00')).astimezone(timezone.utc)
+    except Exception:
+        return None
+ 
+def build_utc_from_dd_mon_hhmm(match_obj, mail_dt_utc):
+    """
+    '1500/23 Nov' jaisi string se proper UTC datetime banao.
+    Year agar missing hai to mail ke year se lo.
+    """
+    try:
+        hhmm = match_obj.group(1)   # 1500
+        day = int(match_obj.group(2))  # 23
+        mon_abbr = match_obj.group(3).lower()  # nov
+ 
+        if len(hhmm) == 4:
+            hour = int(hhmm[:2])
+            minute = int(hhmm[2:])
+        elif len(hhmm) == 3:
+            hour = int(hhmm[:1])
+            minute = int(hhmm[1:])
+        else:
+            return None
+ 
+        month = MONTH_MAP.get(mon_abbr)
+        if not month:
+            return None
+ 
+        # 1) Default year = mail receive year
+        if mail_dt_utc is None:
+            year = datetime.now(timezone.utc).year
+        else:
+            year = mail_dt_utc.year
+ 
+            # Optional: agar advisory date mail date se bohot peeche lag rahi ho
+            # to next year assume kar sakte ho (simple rule).
+            if mail_dt_utc.month == 12 and month == 1:
+                # Dec mail, Jan advisory -> next year
+                year += 1
+ 
+        dt_utc = datetime(year, month, day, hour, minute, 0, tzinfo=timezone.utc)
+        return dt_utc
+    except Exception:
+        return None
+ 
+def parse_advisory_times(window_lines, mail_received_dt_str):
+    """
+    Window ke andar se advisory ke liye:
+      - Start UTC
+      - End UTC
+      - Start LT (IST)
+      - End LT (IST)
+    nikalta hai.
+ 
+    Expect format: '1500/23 Nov' etc.
+    """
+    mail_dt_utc = parse_mail_received_datetime(mail_received_dt_str)
+ 
+    matches = []
+    pattern = re.compile(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})')
+ 
+    for line in window_lines:
+        for m in pattern.finditer(line):
+            matches.append(m)
+ 
+    if len(matches) < 2:
+        # Agar 2 se kam time blocks mile to skip
+        return None
+ 
+    start_dt_utc = build_utc_from_dd_mon_hhmm(matches[0], mail_dt_utc)
+    end_dt_utc = build_utc_from_dd_mon_hhmm(matches[1], mail_dt_utc)
+ 
+    if not start_dt_utc or not end_dt_utc:
+        return None
+ 
+    # Proper ISO 8601 UTC format: 2025-11-22T23:00:00Z
+    start_utc_str = start_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_utc_str = end_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+ 
+    # LT (IST) nikalna (agar mail me LT na mile toh bhi yeh kaafi hai)
+    start_lt = start_dt_utc.astimezone(IST_OFFSET)
+    end_lt = end_dt_utc.astimezone(IST_OFFSET)
+ 
+    # Example: 2025-11-23T04:30:00+05:30
+    start_lt_str = start_lt.isoformat(timespec="seconds")
+    end_lt_str = end_lt.isoformat(timespec="seconds")
+ 
+    return start_utc_str, end_utc_str, start_lt_str, end_lt_str
  
 # ===================== FIELD LABEL CHECK =====================
  
@@ -106,7 +211,7 @@ def check_mandatory_fields_in_html(html_content: str):
  
     # operation / operational probability
     cond_op_prob = (
-        (( 'operation' in html_lower or 'operational' in html_lower )
+        (('operation' in html_lower or 'operational' in html_lower)
          and ('probability' in html_lower or 'probab' in html_lower))
         or 'operationprobability' in simple
         or 'operationalprobability' in simple
@@ -140,14 +245,16 @@ def check_mandatory_fields_in_html(html_content: str):
  
 # ===================== NLP-STYLE EXTRACTION =====================
  
-def extract_weather_stations_nlp(html_content: str):
+def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None):
     """
     NLP-style extractor:
     - HTML -> plain text -> lines
     - Find station lines (3-letter uppercase)
     - For each station, look in next few lines for:
-      weatherPhenomenon, operationProbability, advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC
-    Returns: list of station dicts (each with all 5 mandatory fields, no dummy values).
+      weatherPhenomenon, operationProbability,
+      advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC,
+      + advisoryTimePeriodStartLT, advisoryTimePeriodEndLT (new)
+    Returns: list of station dicts (each with all 5 mandatory fields, plus LT).
     """
     soup = BeautifulSoup(html_content, "html.parser")
     text = soup.get_text("\n", strip=True)
@@ -166,7 +273,7 @@ def extract_weather_stations_nlp(html_content: str):
             entry = {"station": station_code}
  
             # Look ahead in a window after this station
-            window = lines[i+1 : i+15]  # next up to 14 lines
+            window = lines[i+1: i+15]  # next up to 14 lines
  
             # ---- Find operationProbability (0–100) ----
             for w in window:
@@ -184,22 +291,24 @@ def extract_weather_stations_nlp(html_content: str):
                     entry["weatherPhenomenon"] = w
                     break
  
-            # ---- Find time-like strings (for StartUTC and EndUTC) ----
-            time_candidates = []
-            for w in window:
-                # covers: 2025-11-21T16:00:00Z  OR  1500/23 Nov  OR  16:00
-                if (
-                    re.search(r"\d{4}-\d{2}-\d{2}", w) or           # 2025-11-21
-                    re.search(r"\d{2}:\d{2}", w) or                 # 16:00
-                    re.search(r"\d{3,4}/\d{1,2}\s*[A-Za-z]{3}", w)  # 1500/23 Nov
-                ):
-                    time_candidates.append(w)
+            # ---- Parse advisory time range (UTC + LT) from pattern '1500/23 Nov' ----
+            time_result = parse_advisory_times(window, mail_received_dt)
+            if time_result:
+                (
+                    start_utc_str,
+                    end_utc_str,
+                    start_lt_str,
+                    end_lt_str
+                ) = time_result
  
-            if len(time_candidates) >= 2:
-                entry["advisoryTimePeriodStartUTC"] = time_candidates[0]
-                entry["advisoryTimePeriodEndUTC"] = time_candidates[1]
+                entry["advisoryTimePeriodStartUTC"] = start_utc_str
+                entry["advisoryTimePeriodEndUTC"] = end_utc_str
  
-            # ---- Check all 5 mandatory fields ----
+                # 3) LT bhi print karo (optional field, but ALWAYS output me present)
+                entry["advisoryTimePeriodStartLT"] = start_lt_str
+                entry["advisoryTimePeriodEndLT"] = end_lt_str
+ 
+            # ---- Check all 5 mandatory fields (station, weatherPhenomenon, operationProbability, UTC start/end) ----
             mandatory = [
                 "station",
                 "weatherPhenomenon",
@@ -283,7 +392,10 @@ def process_single_email(message):
  
         print("   ✅ All 5 mandatory field labels found in body – running NLP extractor...")
  
-        stations = extract_weather_stations_nlp(body_html)
+        stations = extract_weather_stations_nlp(
+            body_html,
+            mail_received_dt=message.get("receivedDateTime", "")
+        )
  
         if not stations:
             print("   ❌ NLP extractor could not find any complete stations – Skipping this email.")
@@ -362,4 +474,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
