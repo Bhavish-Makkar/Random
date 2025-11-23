@@ -1,0 +1,36 @@
+import requests
+from typing import List, Dict, Any
+
+def fetch_user_messages(access_token: str, user_email: str, top: int = 50) -> List[Dict[str, Any]]:
+    """
+    Fetches messages from the given user's mailbox via Microsoft Graph,
+    returns a list of structured dicts containing key fields.
+    """
+    endpoint = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json"
+    }
+    params = {
+        "$top": top,
+        # limit to the fields you care about to reduce payload
+        "$select": "id,subject,receivedDateTime,sender,bodyPreview"
+    }
+    resp = requests.get(endpoint, headers=headers, params=params)
+    resp.raise_for_status()
+    data = resp.json()
+    messages = data.get("value", [])
+    result = []
+    for msg in messages:
+        result.append({
+            "messageId": msg.get("id"),
+            "subject": msg.get("subject"),
+            "senderName": msg.get("sender", {}).get("emailAddress", {}).get("name"),
+            "senderAddress": msg.get("sender", {}).get("emailAddress", {}).get("address"),
+            "receivedDateTime": msg.get("receivedDateTime"),
+            "bodyPreview": msg.get("bodyPreview")
+        })
+    # optionally: check for pagination:
+    next_link = data.get("@odata.nextLink")
+    # you may loop if you want to get *all* messages
+    return result
