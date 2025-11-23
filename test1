@@ -29,11 +29,13 @@ def load_env(path: str = ".env") -> None:
 # Load .env early
 load_env()
  
-IS_LOCAL_ENV = os.environ.get("ENV", "").lower() == "local"
+ENV = os.environ.get("ENV", "").lower()
+IS_LOCAL_ENV = (ENV == "local")
  
 # ===================== CONFIG =====================
  
-ACCESS_TOKEN ="eyJ0eXAiOiJKV1QiLCJub25jZSI6IktSbV80cU9DY0FwQVhEZkVGR2VQaThmakpJTFNlSW14cnl3RnFKczhKRUEiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL2dyYXBoLm1pY3Jvc29mdC5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC83M2YyZTcxNC1hMzJlLTQ2OTctOTQ0OS1kZmZlMWRmOGE1ZDUvIiwiaWF0IjoxNzYzODY5Nzc2LCJuYmYiOjE3NjM4Njk3NzYsImV4cCI6MTc2Mzg3MzY3NiwiYWlvIjoiazJKZ1lCRDhQeTNiOUh1ZTZxTzBZTFVyU1NhdkFBPT0iLCJhcHBfZGlzcGxheW5hbWUiOiJPQ0Mgb25lIGFwcCAtIFBPQyIsImFwcGlkIjoiMzhhZTcyYjUtNzMxNi00YzkxLTk4ZjgtMDEzZTQ2MjcyMjA5IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1LyIsImlkdHlwIjoiYXBwIiwib2lkIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwicmgiOiIxLkFWTUFGT2Z5Y3k2amwwYVVTZF8tSGZpbDFRTUFBQUFBQUFBQXdBQUFBQUFBQUFERkFBQlRBQS4iLCJyb2xlcyI6WyJQcmVzZW5jZS5SZWFkLkFsbCIsIk1haWwuUmVhZEJhc2ljLkFsbCIsIlVzZXIuUmVhZC5BbGwiLCJNYWlsLlJlYWQiXSwic3ViIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwidGVuYW50X3JlZ2lvbl9zY29wZSI6IkFTIiwidGlkIjoiNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1IiwidXRpIjoiX1c1YklUNWFLa3Excm5KOFJtczNBQSIsInZlciI6IjEuMCIsIndpZHMiOlsiMDk5N2ExZDAtMGQxZC00YWNiLWI0MDgtZDVjYTczMTIxZTkwIl0sInhtc19hY2QiOjE3NDAxMTA2MTQsInhtc19hY3RfZmN0IjoiOSAzIiwieG1zX2Z0ZCI6IkVZR1NwQjhmWExIdVVsTll6dXpVUm5UOWRlWEFzWnlSZTR4cGJnc3oyMWdCYW1Gd1lXNWxZWE4wTFdSemJYTSIsInhtc19pZHJlbCI6IjcgMjYiLCJ4bXNfcmQiOiIwLjQyTGxZQkppREJZUzRXQVhFcmhwRWg5WE5udUc5emJET00tb1JOdnJRRkZPSVlGVHNfTFlKUU9kUERaZkxXbzZtYVExRFNqS0lTVEF6QUFCQjZBMEFBIiwieG1zX3N1Yl9mY3QiOiIzIDkiLCJ4bXNfdGNkdCI6MTUxMDgyMTQ0NywieG1zX3RudF9mY3QiOiIzIDQifQ.rq3SFMqAnwVuLEGY0--MLx5Q1pfQJOqlzo7BNwNjgN3Lo3zqCXKlmVnor8VWvV4p1D-Z2mdsFOzWVtLaMqP1Bxu_Wsc3QhjVyVYbU5VrDuS4PxSKRBQGS3TSgSAZ9qJ59WB2V599Q8JoOaLfDnmwZFb876-olKEisviYvpwQWpiHtEXcZnyoc6fNZzrb2Kr9KwvvbiXuwYy7drTa6e6CetaYYO2aD82pKiT4r0Rq14PEsB6wewijMfRaDZRiD829AR_Fd7yMkMS58QEb6uPoG1SFmRurubZ-JNCvoc81Pqb3G6x8rJpAupwa7_o9KgjEO0-AJLhhiXORcbQZ1Mi8eg"
+# 🔒 Better: read from env, don't hardcode token
+ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJub25jZSI6InN1QmV0emQwYW1VS1poVTlRaU83LS1jZjVLdGRsS2JmMFZTYk56Y1UxUzgiLCJhbGciOiJSUzI1NiIsIng1dCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyIsImtpZCI6InJ0c0ZULWItN0x1WTdEVlllU05LY0lKN1ZuYyJ9.eyJhdWQiOiJodHRwczovL2dyYXBoLm1pY3Jvc29mdC5jb20iLCJpc3MiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC83M2YyZTcxNC1hMzJlLTQ2OTctOTQ0OS1kZmZlMWRmOGE1ZDUvIiwiaWF0IjoxNzYzODc1MTQ3LCJuYmYiOjE3NjM4NzUxNDcsImV4cCI6MTc2Mzg3OTA0NywiYWlvIjoiazJKZ1lHZ3lQN0hCTUhWbjc2WnBxdzZzNHRiZEF3QT0iLCJhcHBfZGlzcGxheW5hbWUiOiJPQ0Mgb25lIGFwcCAtIFBPQyIsImFwcGlkIjoiMzhhZTcyYjUtNzMxNi00YzkxLTk4ZjgtMDEzZTQ2MjcyMjA5IiwiYXBwaWRhY3IiOiIxIiwiaWRwIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1LyIsImlkdHlwIjoiYXBwIiwib2lkIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwicmgiOiIxLkFWTUFGT2Z5Y3k2amwwYVVTZF8tSGZpbDFRTUFBQUFBQUFBQXdBQUFBQUFBQUFERkFBQlRBQS4iLCJyb2xlcyI6WyJQcmVzZW5jZS5SZWFkLkFsbCIsIk1haWwuUmVhZEJhc2ljLkFsbCIsIlVzZXIuUmVhZC5BbGwiLCJNYWlsLlJlYWQiXSwic3ViIjoiMDRhYWRlZmMtNGI2Zi00OGQxLWE5OTEtOTFjMDFkM2M0NTg0IiwidGVuYW50X3JlZ2lvbl9zY29wZSI6IkFTIiwidGlkIjoiNzNmMmU3MTQtYTMyZS00Njk3LTk0NDktZGZmZTFkZjhhNWQ1IiwidXRpIjoiSmNZSl9MdWNOVUdnajB3Z0VQWTVBQSIsInZlciI6IjEuMCIsIndpZHMiOlsiMDk5N2ExZDAtMGQxZC00YWNiLWI0MDgtZDVjYTczMTIxZTkwIl0sInhtc19hY2QiOjE3NDAxMTA2MTQsInhtc19hY3RfZmN0IjoiMyA5IiwieG1zX2Z0ZCI6IkloMkV4MEVEV0YwaUFfeWlJenBFQWp3X2w4bVNSRTlVbWc1alNEWVVlT1lCYW1Gd1lXNWxZWE4wTFdSemJYTSIsInhtc19pZHJlbCI6IjQgNyIsInhtc19yZCI6IjAuNDJMbFlCSmlEQllTNFdBWEVyaHBFaDlYTm51Rzl6YkRPTS1vUk52clFGRk9JWUZUc19MWUpRT2RQRFpmTFdvNm1hUTFEU2pLSVNUQXpBQUJCNkEwQUEiLCJ4bXNfc3ViX2ZjdCI6IjkgMyIsInhtc190Y2R0IjoxNTEwODIxNDQ3LCJ4bXNfdG50X2ZjdCI6IjEyIDMifQ.Pa0r8n09EX65PIDE4aBl97JKQ9e0JH97HmBm7dbrM2FSRT6zBo1FxffBkiIWT7lGN8O3ETYaynNJuWTgfG7S1gr-kdLbCKJA_dSJ41VxlrS-veyV-dX78sv4Vs6kjwlGaEk8xAPEGJRZ-96A5_4kTRkcnKHLaGc7ANKEgTZTaRI6aaSWTG9C3Yb4tF2VQwpWuxu3eCYQI1jiuRFBaFh5x-A0-65qxEn2KZ01rX9gpWauaqFT2emX8LSQoz_hT2ur35s9v5CYn-M24_GGGzXoRztZTZV3BD_45rOBWQd4L1_VQRkeqdKuolNB2LWlXU5lHKt-FXpgyZFje9Vq1S6pCw"
 USER_EMAIL = "metstratosphere@goIndiGo.in"
  
 if not ACCESS_TOKEN:
@@ -47,6 +49,8 @@ headers = {
 }
  
 OUTPUT_DIR = "email_extracts"
+ 
+# Only create directory upfront if ENV=local (global mode won't save files)
 if IS_LOCAL_ENV and not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
  
@@ -116,10 +120,8 @@ def build_utc_from_dd_mon_hhmm(match_obj, mail_dt_utc):
         else:
             year = mail_dt_utc.year
  
-            # Optional: agar advisory date mail date se bohot peeche lag rahi ho
-            # to next year assume kar sakte ho (simple rule).
+            # Dec mail, Jan advisory -> next year
             if mail_dt_utc.month == 12 and month == 1:
-                # Dec mail, Jan advisory -> next year
                 year += 1
  
         dt_utc = datetime(year, month, day, hour, minute, 0, tzinfo=timezone.utc)
@@ -135,7 +137,6 @@ def parse_advisory_times(window_lines, mail_received_dt_str):
       - Start LT (IST)
       - End LT (IST)
     nikalta hai.
- 
     Expect format: '1500/23 Nov' etc.
     """
     mail_dt_utc = parse_mail_received_datetime(mail_received_dt_str)
@@ -148,7 +149,6 @@ def parse_advisory_times(window_lines, mail_received_dt_str):
             matches.append(m)
  
     if len(matches) < 2:
-        # Agar 2 se kam time blocks mile to skip
         return None
  
     start_dt_utc = build_utc_from_dd_mon_hhmm(matches[0], mail_dt_utc)
@@ -157,15 +157,12 @@ def parse_advisory_times(window_lines, mail_received_dt_str):
     if not start_dt_utc or not end_dt_utc:
         return None
  
-    # Proper ISO 8601 UTC format: 2025-11-22T23:00:00Z
     start_utc_str = start_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     end_utc_str = end_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
  
-    # LT (IST) nikalna (agar mail me LT na mile toh bhi yeh kaafi hai)
     start_lt = start_dt_utc.astimezone(IST_OFFSET)
     end_lt = end_dt_utc.astimezone(IST_OFFSET)
  
-    # Example: 2025-11-23T04:30:00+05:30
     start_lt_str = start_lt.isoformat(timespec="seconds")
     end_lt_str = end_lt.isoformat(timespec="seconds")
  
@@ -174,12 +171,6 @@ def parse_advisory_times(window_lines, mail_received_dt_str):
 # ===================== FIELD LABEL CHECK =====================
  
 def check_mandatory_fields_in_html(html_content: str):
-    """
-    Check that the HTML body conceptually contains 5 labels:
-      station, weatherPhenomenon, operationProbability,
-      advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC
-    (only label presence check, values later NLP se nikalenge)
-    """
     required_keys = {
         "station",
         "weatherPhenomenon",
@@ -196,11 +187,9 @@ def check_mandatory_fields_in_html(html_content: str):
  
     present = set()
  
-    # station
     if 'station' in html_lower or 'station' in simple:
         present.add("station")
  
-    # weather phenomenon
     cond_weather = (
         ('weather' in html_lower and ('phenomenon' in html_lower or 'phenom' in html_lower))
         or 'weatherphenomenon' in simple
@@ -209,7 +198,6 @@ def check_mandatory_fields_in_html(html_content: str):
     if cond_weather:
         present.add("weatherPhenomenon")
  
-    # operation / operational probability
     cond_op_prob = (
         (('operation' in html_lower or 'operational' in html_lower)
          and ('probability' in html_lower or 'probab' in html_lower))
@@ -220,7 +208,6 @@ def check_mandatory_fields_in_html(html_content: str):
     if cond_op_prob:
         present.add("operationProbability")
  
-    # advisory start utc
     cond_start_utc = (
         ('advisory' in html_lower and 'start' in html_lower and 'utc' in html_lower)
         or 'advisorytimeperiodstartutc' in simple
@@ -230,7 +217,6 @@ def check_mandatory_fields_in_html(html_content: str):
     if cond_start_utc:
         present.add("advisoryTimePeriodStartUTC")
  
-    # advisory end utc
     cond_end_utc = (
         ('advisory' in html_lower and 'end' in html_lower and 'utc' in html_lower)
         or 'advisorytimeperiodendutc' in simple
@@ -246,16 +232,6 @@ def check_mandatory_fields_in_html(html_content: str):
 # ===================== NLP-STYLE EXTRACTION =====================
  
 def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None):
-    """
-    NLP-style extractor:
-    - HTML -> plain text -> lines
-    - Find station lines (3-letter uppercase)
-    - For each station, look in next few lines for:
-      weatherPhenomenon, operationProbability,
-      advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC,
-      + advisoryTimePeriodStartLT, advisoryTimePeriodEndLT (new)
-    Returns: list of station dicts (each with all 5 mandatory fields, plus LT).
-    """
     soup = BeautifulSoup(html_content, "html.parser")
     text = soup.get_text("\n", strip=True)
     lines = [l.strip() for l in text.splitlines() if l.strip()]
@@ -267,15 +243,13 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
     while i < n:
         line = lines[i]
  
-        # Station code = exactly 3 uppercase letters
         if re.fullmatch(r"[A-Z]{3}", line):
             station_code = line
             entry = {"station": station_code}
  
-            # Look ahead in a window after this station
-            window = lines[i+1: i+15]  # next up to 14 lines
+            window = lines[i+1: i+15]
  
-            # ---- Find operationProbability (0–100) ----
+            # operationProbability
             for w in window:
                 m = re.search(r"\b([0-9]{1,3})\b", w)
                 if m:
@@ -284,31 +258,21 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
                         entry["operationProbability"] = val
                         break
  
-            # ---- Find weatherPhenomenon (short uppercase word) ----
+            # weatherPhenomenon
             for w in window:
-                # pure uppercase 2–6 letters, not same as station, not just digits
                 if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
                     entry["weatherPhenomenon"] = w
                     break
  
-            # ---- Parse advisory time range (UTC + LT) from pattern '1500/23 Nov' ----
+            # advisory times
             time_result = parse_advisory_times(window, mail_received_dt)
             if time_result:
-                (
-                    start_utc_str,
-                    end_utc_str,
-                    start_lt_str,
-                    end_lt_str
-                ) = time_result
- 
+                start_utc_str, end_utc_str, start_lt_str, end_lt_str = time_result
                 entry["advisoryTimePeriodStartUTC"] = start_utc_str
                 entry["advisoryTimePeriodEndUTC"] = end_utc_str
- 
-                # 3) LT bhi print karo (optional field, but ALWAYS output me present)
                 entry["advisoryTimePeriodStartLT"] = start_lt_str
                 entry["advisoryTimePeriodEndLT"] = end_lt_str
  
-            # ---- Check all 5 mandatory fields (station, weatherPhenomenon, operationProbability, UTC start/end) ----
             mandatory = [
                 "station",
                 "weatherPhenomenon",
@@ -358,7 +322,6 @@ def get_all_messages(page_size: int = 50, max_pages: int = None):
     print(f"Total messages retrieved: {len(all_messages)}")
     return all_messages
  
- 
 def get_message_body_html(message_id: str) -> str:
     url = (
         f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages/{message_id}"
@@ -384,7 +347,6 @@ def process_single_email(message):
             print("   ❌ No HTML body found – Skipping this email.")
             return None
  
-        # 1) Check mandatory field labels present somewhere in body
         missing_fields = check_mandatory_fields_in_html(body_html)
         if missing_fields:
             print(f"   ❌ Missing mandatory field(s) in mail body: {', '.join(missing_fields)} – Skipping this email.")
@@ -411,17 +373,30 @@ def process_single_email(message):
         print(f"   ❌ Error processing email: {e}")
         return None
  
+def process_all_emails(save_files: bool | None = None):
+    """
+    When imported by send_events.py:
+      - Typically you won't call this; you'll use process_single_email.
+    When run directly (python test2.py):
+      - save_files=True  -> JSON files created in OUTPUT_DIR
+      - save_files=False -> no files created, just extraction + logs
  
-def process_all_emails():
-    if not IS_LOCAL_ENV:
-        print("❌ File creation only available in local environment (ENV=local)")
-        return 0, 0
+    If save_files is None, we default to ENV:
+      - ENV=local  -> save_files=True
+      - ENV=global -> save_files=False
+    """
+    if save_files is None:
+        save_files = IS_LOCAL_ENV
  
     print("=" * 60)
     print("🌤️  WEATHER ADVISORY EMAIL PROCESSOR – NLP VERSION")
     print("=" * 60)
+    print(f"ENV = {ENV} | save_files = {save_files}")
     print("🔍 Uses label detection + NLP-style window parsing around station codes.")
-    print("🚫 No artificial defaults – only values present in mail are used\n")
+    if save_files:
+        print("💾 JSON files WILL be created in email_extracts/")
+    else:
+        print("📡 JSON will NOT be saved, only extracted in memory.\n")
  
     all_messages = get_all_messages(page_size=50)
     successful_extractions = 0
@@ -434,7 +409,11 @@ def process_all_emails():
         weather_advisory = process_single_email(message)
  
         if weather_advisory:
-            if IS_LOCAL_ENV:
+            if save_files:
+                # Ensure directory exists if we are saving
+                if not os.path.exists(OUTPUT_DIR):
+                    os.makedirs(OUTPUT_DIR, exist_ok=True)
+ 
                 subject_clean = sanitize_filename(message.get("subject", "No_Subject")[:30])
                 date_clean = message.get("receivedDateTime", "")[:10].replace("-", "_")
                 filename = f"{idx + 1:03d}_{date_clean}_{subject_clean}.json"
@@ -445,6 +424,9 @@ def process_all_emails():
  
                 station_count = len(weather_advisory["stations"])
                 print(f"   ✅ Extracted {station_count} station(s) – Saved to {filename}")
+            else:
+                station_count = len(weather_advisory["stations"])
+                print(f"   ✅ Extracted {station_count} station(s) – (not saving to disk, save_files=False)")
  
             successful_extractions += 1
         else:
@@ -458,19 +440,25 @@ def process_all_emails():
     print(f"📧 Total emails processed: {len(all_messages)}")
     print(f"✅ Successful extractions: {successful_extractions}")
     print(f"⏭️  Skipped emails: {skipped_emails}")
-    print(f"📁 Files saved in: {OUTPUT_DIR}/")
+    if save_files:
+        print(f"📁 Files saved in: {OUTPUT_DIR}/")
+    else:
+        print("📁 No files saved (save_files=False).")
  
     return len(all_messages), successful_extractions
  
- 
 def main():
     try:
-        process_all_emails()
+        # Standalone behavior:
+        #   ENV=local  -> save_files=True
+        #   ENV=global -> save_files=False
+        save_files = IS_LOCAL_ENV
+        process_all_emails(save_files=save_files)
     except requests.HTTPError as e:
         print(f"❌ HTTP Error: {e}")
     except Exception as e:
         print(f"❌ Error: {e}")
  
- 
 if __name__ == "__main__":
     main()
+ 
