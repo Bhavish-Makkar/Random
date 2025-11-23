@@ -1,28 +1,12 @@
-#!/usr/bin/env python3
-"""
-Azure Event Hubs – Weather Email → Event Pipeline
+# Usage:
+#   python src/send_events.py
  
-Behavior based on ENV:
- 
-  ENV=global
-    - Extract JSON advisory from each relevant email
-    - DO NOT create/store JSON files
-    - Send each advisory as an Event to Azure Event Hub
- 
-  ENV=local
-    - Extract JSON advisory from each relevant email
-    - Create & store JSON file per email in OUTPUT_DIR
-    - Send each advisory as an Event to Azure Event Hub
- 
-Usage:
-  python src/send_events.py
- 
-Required env (.env or environment):
-  EVENTHUB_CONNECTION_STRING
-  EVENTHUB_NAME
-  EVENTHUB_NAMESPACE     (optional, informational)
-  ENV=local | global
-"""
+# Required env (.env or environment):
+#   EVENTHUB_CONNECTION_STRING
+#   EVENTHUB_NAME
+#   EVENTHUB_NAMESPACE     (optional, informational)
+#   ENV=local | global
+# """
  
 import asyncio
 import json
@@ -33,21 +17,17 @@ from typing import Dict, Optional, List
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
  
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-#  IMPORT YOUR EMAIL-EXTRACTOR LOGIC HERE
-#  Replace `weather_email_processor` with the actual filename (without .py)
-#  This module should contain:
-#    - get_all_messages(page_size: int = 50, max_pages: int = None) -> list[dict]
-#    - process_single_email(message: dict) -> Optional[dict]   (returns weather_advisory)
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# #  IMPORT YOUR EMAIL-EXTRACTOR LOGIC HERE
+# # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 from test2 import (
     get_all_messages,
     process_single_email,
 )
-# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  
  
-# ------------------ Utilities ------------------
+# # ------------------ Utilities ------------------
  
 def load_env(path: str = ".env") -> None:
     """Minimal .env loader (no external dependency).
@@ -92,7 +72,6 @@ OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "email_extracts")
  
 if IS_LOCAL_ENV and not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
- 
  
 # Optional older file-based path (still here if you want to reuse it)
 WEATHER_DATA_FILE = os.environ.get("WEATHER_DATA_FILE", "weather_advisories.json")
@@ -158,38 +137,23 @@ def create_sample_weather_event(event_id: int) -> Dict:
     }
  
  
-# ------------------ EventHub Sender ------------------
+# ------------------ EventHub Sender helpers ------------------
  
-async def send_single_event(event_data: Dict) -> None:
-    """Send a single custom event (dict) to Event Hub as JSON."""
-    if not CONNECTION_STRING:
-        raise ValueError(
-            "EVENTHUB_CONNECTION_STRING environment variable not set.\n"
-            "Set it in .env or export it in your shell."
-        )
+async def send_single_event_with_producer(
+    producer: EventHubProducerClient,
+    event_data: Dict,
+) -> None:
+    """
+    Send a single custom event (dict) using an already-created producer.
+    """
+    event_json = json.dumps(event_data)
+    event_data_obj = EventData(event_json)
  
-    if not EVENTHUB_NAME:
-        raise ValueError("EVENTHUB_NAME environment variable not set.")
- 
-    print(f"→ Sending single event to EventHub: {EVENTHUB_NAME}")
- 
-    producer = EventHubProducerClient.from_connection_string(
-        conn_str=CONNECTION_STRING,
-        eventhub_name=EVENTHUB_NAME,
-    )
- 
-    try:
-        async with producer:
-            event_data_batch = await producer.create_batch()
-            event_json = json.dumps(event_data)
-            event_data_batch.add(EventData(event_json))
-            await producer.send_batch(event_data_batch)
-            print("✓ Event sent successfully")
-    except Exception as e:
-        print(f"✗ Error sending event: {e}")
-        raise
-    finally:
-        await producer.close()
+    # Simple per-event batch (still uses batching API, but instant send)
+    event_data_batch = await producer.create_batch()
+    event_data_batch.add(event_data_obj)
+    await producer.send_batch(event_data_batch)
+    print("   ✅ Event sent to EventHub")
  
  
 async def send_events_batch(num_events: int = 10) -> None:
@@ -249,91 +213,102 @@ async def send_events_batch(num_events: int = 10) -> None:
         await producer.close()
  
  
-# ------------------ EMAIL → JSON → EVENT PIPELINE ------------------
+# ------------------ EMAIL → JSON → EVENT (single-pass pipeline) ------------------
  
-def collect_weather_advisories_from_email() -> List[Dict]:
+async def send_all_advisories_from_email() -> None:
     """
-    Use your email-extractor script to:
+    High-level pipeline (single-pass):
+ 
       - Fetch emails via Graph
-      - Extract per-email advisory JSON (station list, etc.)
-      - Optionally create & store JSON files (only in ENV=local)
-    Returns:
-      List of advisory dicts (one per email where extraction succeeded)
+      - For each email:
+          * Extract advisory JSON using process_single_email()
+          * If ENV=local → save JSON file
+          * Immediately send that advisory as an Event to Azure Event Hub
+ 
+    No separate "collect then send" phase – creation and sending happen together.
     """
+    if not CONNECTION_STRING:
+        raise ValueError(
+            "EVENTHUB_CONNECTION_STRING environment variable not set.\n"
+            "Set it in .env or export it in your shell."
+        )
+ 
+    if not EVENTHUB_NAME:
+        raise ValueError("EVENTHUB_NAME environment variable not set.")
+ 
     print("=" * 60)
-    print("📥 Collecting Weather Advisories from Emails (via Graph)")
+    print("📥 Collecting & Sending Weather Advisories from Emails (via Graph)")
     print(f"Environment mode: {ENV} (IS_LOCAL_ENV={IS_LOCAL_ENV})")
+    print(f"EventHub: {EVENTHUB_NAME} | Namespace: {EVENTHUB_NAMESPACE}")
     print("=" * 60)
  
     all_messages = get_all_messages(page_size=50)
     total_emails = len(all_messages)
  
-    advisories: List[Dict] = []
- 
     print(f"Total emails fetched from Graph: {total_emails}")
  
-    for idx, message in enumerate(all_messages):
-        subject = message.get("subject", "No Subject")
-        short_subject = subject[:80]
-        print(f"\nProcessing email {idx + 1}/{total_emails}: {short_subject!r}")
+    advisories_extracted = 0
+    advisories_sent = 0
+    advisories_skipped = 0
  
-        weather_advisory = process_single_email(message)
+    # Create a single producer and reuse it for all emails
+    producer = EventHubProducerClient.from_connection_string(
+        conn_str=CONNECTION_STRING,
+        eventhub_name=EVENTHUB_NAME,
+    )
  
-        if not weather_advisory:
-            print("   ↳ Skipped (no valid advisory extracted).")
-            continue
+    try:
+        async with producer:
+            for idx, message in enumerate(all_messages):
+                subject = message.get("subject", "No Subject")
+                short_subject = subject[:80]
+                print(f"\nProcessing email {idx + 1}/{total_emails}: {short_subject!r}")
  
-        # If ENV=local → save JSON file per email
-        if IS_LOCAL_ENV:
-            received_dt = message.get("receivedDateTime", "")[:10].replace("-", "_")
-            subject_clean = sanitize_filename(subject[:30] or "No_Subject")
-            filename = f"{idx + 1:03d}_{received_dt}_{subject_clean}.json"
-            filepath = os.path.join(OUTPUT_DIR, filename)
+                weather_advisory = process_single_email(message)
  
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    json.dump(weather_advisory, f, indent=2, ensure_ascii=False)
-                station_count = len(weather_advisory.get("stations", []))
-                print(f"   ✓ Saved advisory JSON ({station_count} station(s)) to {filepath}")
-            except Exception as e:
-                print(f"   ✗ Error saving JSON file {filepath}: {e}")
+                if not weather_advisory:
+                    print("   ↳ Skipped (no valid advisory extracted).")
+                    advisories_skipped += 1
+                    continue
  
-        else:
-            print("   (global ENV) Not writing JSON file, only sending to EventHub.")
+                advisories_extracted += 1
  
-        advisories.append(weather_advisory)
+                # If ENV=local → save JSON file per email
+                if IS_LOCAL_ENV:
+                    received_dt = message.get("receivedDateTime", "")[:10].replace("-", "_")
+                    subject_clean = sanitize_filename(subject[:30] or "No_Subject")
+                    filename = f"{idx + 1:03d}{received_dt}{subject_clean}.json"
+                    filepath = os.path.join(OUTPUT_DIR, filename)
+ 
+                    try:
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            json.dump(weather_advisory, f, indent=2, ensure_ascii=False)
+                        station_count = len(weather_advisory.get("stations", []))
+                        print(f"   ✓ Saved advisory JSON ({station_count} station(s)) to {filepath}")
+                    except Exception as e:
+                        print(f"   ✗ Error saving JSON file {filepath}: {e}")
+ 
+                else:
+                    print("   (global ENV) Not writing JSON file, only sending to EventHub.")
+ 
+                # ✅ Immediately send this advisory as an Event
+                try:
+                    await send_single_event_with_producer(producer, weather_advisory)
+                    advisories_sent += 1
+                except Exception as e:
+                    print(f"   ✗ Error sending advisory event: {e}")
+ 
+    finally:
+        # producer is closed by async context manager, but keep for safety
+        await producer.close()
  
     print("\nSummary:")
     print(f"  Emails scanned: {total_emails}")
-    print(f"  Advisories extracted: {len(advisories)}")
+    print(f"  Advisories extracted: {advisories_extracted}")
+    print(f"  Advisories sent to EventHub: {advisories_sent}")
+    print(f"  Emails skipped (no advisory): {advisories_skipped}")
     if IS_LOCAL_ENV:
         print(f"  JSON files directory: {OUTPUT_DIR}")
- 
-    return advisories
- 
- 
-async def send_all_advisories_from_email() -> None:
-    """
-    High-level pipeline:
-      1) Extract advisories from email body (using your existing script)
-      2) If ENV=local → also save JSON files
-      3) Send each advisory as an Event to Azure Event Hub
-    """
-    advisories = collect_weather_advisories_from_email()
- 
-    if not advisories:
-        print("No advisories to send. Exiting.")
-        return
- 
-    print("\n" + "=" * 60)
-    print(f"🚀 Sending {len(advisories)} advisory event(s) to EventHub: {EVENTHUB_NAME}")
-    print("=" * 60)
- 
-    for i, advisory in enumerate(advisories, start=1):
-        print(f"\nEvent {i}/{len(advisories)}:")
-        await send_single_event(advisory)
- 
-    print("\n✅ All advisory events sent successfully.")
  
  
 # ------------------ Entrypoint ------------------
@@ -349,7 +324,7 @@ def main() -> None:
     print(f"EVENTHUB_NAMESPACE = {EVENTHUB_NAMESPACE}")
     print("=" * 60)
  
-    # If you still want a CLI flag to send dummy test events:
+    # Still keep the dummy test mode:
     # python send_events.py test 5
     if len(sys.argv) > 1 and sys.argv[1] == "test":
         num_events = 5
@@ -367,7 +342,7 @@ def main() -> None:
             sys.exit(1)
         return
  
-    # Default behavior: email → JSON → EventHub (with ENV-based behavior)
+    # Default behavior: single-pass email → JSON [+optional file] → EventHub
     try:
         asyncio.run(send_all_advisories_from_email())
     except KeyboardInterrupt:
@@ -379,4 +354,3 @@ def main() -> None:
  
 if __name__ == "__main__":
     main()
- 
