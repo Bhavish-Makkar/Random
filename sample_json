@@ -48,3 +48,48 @@
     }
   ]
 }
+
+
+
+
+
+
+
+
+
+
+
+{
+  "createdAt": "2025-11-22T19:22:13Z+05:30",
+  "stations": [
+    {
+      "station": "IXC",
+      "operationProbability": 23,
+      "weatherPhenomenon": "FG",
+      "advisoryTimePeriodStartUTC": "1500/23 Nov",
+      "advisoryTimePeriodEndUTC": "2030/23 Nov"
+    },
+    {
+      "station": "VNS",
+      "operationProbability": 23,
+      "weatherPhenomenon": "FG",
+      "advisoryTimePeriodStartUTC": "1800/23 Nov",
+      "advisoryTimePeriodEndUTC": "2330/23 Nov"
+    },
+    {
+      "station": "PAT",
+      "operationProbability": 23,
+      "weatherPhenomenon": "FG",
+      "advisoryTimePeriodStartUTC": "1900/23 Nov",
+      "advisoryTimePeriodEndUTC": "0030/24 Nov"
+    }
+  ]
+}
+ 
+
+
+
+
+
+
+
