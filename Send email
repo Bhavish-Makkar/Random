@@ -1,0 +1,95 @@
+You’ll use the sendMail endpoint of Microsoft Graph and your access token to POST a JSON payload.
+
+At a high level, Graph expects:
+
+URL: POST https://graph.microsoft.com/v1.0/me/sendMail
+or POST https://graph.microsoft.com/v1.0/users/{sender_upn}/sendMail 
+
+Header: Authorization: Bearer <ACCESS_TOKEN>
+
+Body: JSON with message + saveToSentItems 
+
+Permission on token: Mail.Send (delegated or application) 
+
+
+> Important: The URL uses the mailbox you are sending from (you / your service account),
+your friend’s email goes in toRecipients, not in the URL.
+
+
+
+
+---
+
+Minimal Python script (with requests)
+
+import requests
+import json
+
+# ---------- CONFIG (FILL THESE) ----------
+ACCESS_TOKEN = "YOUR_ACCESS_TOKEN_HERE"  # Graph access token with Mail.Send
+SENDER_USER_EMAIL = "you@yourtenant.com"  # mailbox you are sending FROM
+FRIEND_EMAIL = "friend@example.com"       # mailbox you are sending TO
+
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+# Use /me/sendMail if the token is for the signed-in user
+# url = f"{GRAPH_BASE}/me/sendMail"
+
+# Or explicitly use a specific mailbox (UPN or user id)
+url = f"{GRAPH_BASE}/users/{SENDER_USER_EMAIL}/sendMail"
+
+headers = {
+    "Authorization": f"Bearer {ACCESS_TOKEN}",
+    "Content-Type": "application/json"
+}
+
+# ---------- EMAIL PAYLOAD ----------
+body = {
+    "message": {
+        "subject": "Graph API sendMail test",
+        "body": {
+            "contentType": "Text",  # or "HTML"
+            "content": "Hi! 👋\n\nThis is a test email sent via Microsoft Graph API."
+        },
+        "toRecipients": [
+            {
+                "emailAddress": {
+                    "address": FRIEND_EMAIL
+                }
+            }
+        ]
+    },
+    # Optional: set to False if you *don’t* want it in Sent Items
+    "saveToSentItems": False
+}
+
+# ---------- POST REQUEST ----------
+response = requests.post(url, headers=headers, data=json.dumps(body))
+
+print("Status code:", response.status_code)
+print("Response text:", response.text)
+
+if response.status_code == 202:
+    print("✅ Email accepted by Graph. Token has Mail.Send for this mailbox.")
+else:
+    print("❌ Failed to send. Check permissions / token / mailbox.")
+
+How to interpret the result
+
+202 Accepted + empty body → Graph accepted the request (this is success for sendMail). 
+
+401 / 403 → usually an auth/permission issue:
+
+token expired / invalid
+
+missing Mail.Send permission
+
+using /users/{SENDER_USER_EMAIL} without correct delegated/app permissions 
+
+
+
+You can tweak subject and body as you like. Just plug in your access token, your sender mailbox, and your friend’s email, run the script, and check both:
+
+script output (expect 202), and
+
+your friend’s inbox for the test mail.
