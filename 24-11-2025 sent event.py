@@ -1,4 +1,4 @@
-Usage:
+# Usage:
 #   python src/send_events.py
  
 # Required env (.env or environment):
