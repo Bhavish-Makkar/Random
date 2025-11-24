@@ -225,43 +225,54 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
     soup = BeautifulSoup(html_content, "html.parser")
     text = soup.get_text("\n", strip=True)
     lines = [l.strip() for l in text.splitlines() if l.strip()]
- 
+
     stations = []
     n = len(lines)
     i = 0
- 
+
     while i < n:
         line = lines[i]
- 
+
         # Station code = exactly 3 uppercase letters
         if re.fullmatch(r"[A-Z]{3}", line):
             station_code = line
             entry = {"station": station_code}
- 
-            window = lines[i+1: i+15]
- 
-            # operationProbability
+
+            window = lines[i + 1: i + 15]
+
+            # ---------- operationProbability (FIXED) ----------
+            prob_val = None
+
+            # 1) Prefer numbers that are directly associated with a % sign,
+            #    e.g. "30%", " 75 %", etc.
             for w in window:
-                m = re.search(r"\b([0-9]{1,3})\b", w)
+                m = re.search(r"(\d{1,3})\s*%", w)
                 if m:
                     val = int(m.group(1))
                     if 0 <= val <= 100:
-                        entry["operationProbability"] = val
+                        prob_val = val
                         break
- 
-            # weatherPhenomenon
+
+
+
+
+            if prob_val is not None:
+                # store as integer, % sign is ignored
+                entry["operationProbability"] = prob_val
+
+            # ---------- weatherPhenomenon ----------
             for w in window:
                 if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
                     entry["weatherPhenomenon"] = w
                     break
- 
-            # advisory times (UTC only)
+
+            # ---------- advisory times (UTC only) ----------
             time_result = parse_advisory_times(window, mail_received_dt)
             if time_result:
                 start_utc_str, end_utc_str = time_result
                 entry["advisoryTimePeriodStartUTC"] = start_utc_str
                 entry["advisoryTimePeriodEndUTC"] = end_utc_str
- 
+
             # Mandatory 5 fields only
             mandatory = [
                 "station",
@@ -272,10 +283,11 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
             ]
             if all(k in entry for k in mandatory):
                 stations.append(entry)
- 
+
         i += 1
- 
+
     return stations
+
  
 # ===================== GRAPH API EMAIL FUNCTIONS =====================
  
@@ -452,4 +464,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 
