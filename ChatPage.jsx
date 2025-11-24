@@ -58,7 +58,24 @@ export default function ChatPage() {
     }
   });
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    try {
+      if (typeof window === "undefined") return true;
+      const stored = window.localStorage.getItem("flightChatSidebarOpen");
+      if (stored === null) return true; // default: open
+      return stored === "true";
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("flightChatSidebarOpen", isSidebarOpen ? "true" : "false");
+      }
+    } catch {}
+  }, [isSidebarOpen]);
 
   const [currentStatus, setCurrentStatus] = useState("online");
   const [toolCalls, setToolCalls] = useState([]);
@@ -100,9 +117,6 @@ export default function ChatPage() {
 
   // conservative auto-scroll (only when near bottom)
 useEffect(() => {
-  // sirf tab save karna jab:
-  //  - greeting se zyada messages hon
-  //  - kam se kam 1 user message ho
   if (!messages || messages.length <= 1) return;
   const hasUser = messages.some((m) => m.role === "user");
   if (!hasUser) return;
@@ -118,7 +132,7 @@ useEffect(() => {
       ? currentChatTitle
       : titleFromUser || "Previous chat";
 
-  const chatObj = {
+  const baseChatObj = {
     id: sessionId,
     title: safeTitle,
     createdAt: Date.now(),
@@ -126,23 +140,29 @@ useEffect(() => {
   };
 
   setRecentChats((prev) => {
-    // check: kya yeh session pehle se list me hai?
-    const idx = prev.findIndex((c) => c.id === sessionId);
+    const existing = prev.find((c) => c.id === sessionId);
+
+    // 🔒 createdAt ko preserve karo agar pehle se hai
+    const createdAt = existing?.createdAt ?? baseChatObj.createdAt;
+    const chatObj = { ...baseChatObj, createdAt };
 
     let next;
-    if (idx >= 0) {
-      // ✅ existing session → same position pe update
-      next = [...prev];
-      next[idx] = { ...next[idx], ...chatObj };
+
+    if (existing) {
+      // 🚫 POSITION SAME RAKHNA hai → sirf uss index pe update karo
+      next = prev.map((c) =>
+        c.id === sessionId ? { ...c, ...chatObj } : c
+      );
     } else {
-      // ✅ new session → list ke end me add
-      next = [...prev, chatObj];
+      // 🆕 New session → list ke TOP pe add
+      next = [chatObj, ...prev];
     }
 
     persistRecentChats(next);
     return next;
   });
 }, [messages, sessionId, currentChatTitle]);
+
 
 
 
@@ -191,25 +211,34 @@ useEffect(() => {
         ? currentChatTitle
         : titleFromUser || "Previous chat";
 
-    const chatObj = {
-      id: sessionId,
-      title: safeTitle,
-      createdAt: Date.now(),
-      messages: snapshotMessages,
-    };
+    const chatObjBase = {
+  id: sessionId,
+  title: safeTitle,
+  createdAt: Date.now(),
+  messages: snapshotMessages,
+};
 
 setRecentChats((prev) => {
-  const idx = prev.findIndex((c) => c.id === sessionId);
+  const existing = prev.find((c) => c.id === sessionId);
+  const createdAt = existing?.createdAt ?? chatObjBase.createdAt;
+  const chatObj = { ...chatObjBase, createdAt };
+
   let next;
-  if (idx >= 0) {
-    next = [...prev];
-    next[idx] = { ...next[idx], ...chatObj };
+
+  if (existing) {
+    // POSITION same rakho, sirf data update
+    next = prev.map((c) =>
+      c.id === sessionId ? { ...c, ...chatObj } : c
+    );
   } else {
-    next = [...prev, chatObj];
+    // naya chat → TOP pe dikhna chahiye
+    next = [chatObj, ...prev];
   }
+
   persistRecentChats(next);
   return next;
 });
+
   }
 
   startFreshSessionWithoutArchiving();
@@ -245,17 +274,17 @@ const handleSelectRecentChat = (chatId) => {
 const sidebarChats = React.useMemo(() => {
   const base = [...recentChats];
 
-  // current active session ko list me reflect karo
   const idx = base.findIndex((c) => c.id === sessionId);
   if (idx >= 0) {
+    // sirf title/messages update karo, createdAt same rehne do
     base[idx] = {
       ...base[idx],
       title: currentChatTitle,
       messages,
     };
   } else {
-    // agar yeh brand new session hai to list me add karo
-    base.push({
+    // current session agar list me nahi hai → TOP pe dikhado
+    base.unshift({
       id: sessionId,
       title: currentChatTitle,
       createdAt: Date.now(),
@@ -263,10 +292,7 @@ const sidebarChats = React.useMemo(() => {
     });
   }
 
-  // 🧠 IMPORTANT: UI me newest chat upar chahiye
-  // createdAt DESC (newest first)
-  base.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
+  // ❌ koi sort nahi – order same rahega
   return base;
 }, [recentChats, sessionId, currentChatTitle, messages]);
 
@@ -622,21 +648,8 @@ return (
             <span>New chat</span>
           </button>
 
-          {/* 👇 Chhota close icon (optional) */}
-          <button
-            type="button"
-            onClick={() => setIsSidebarOpen(false)}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "16px",
-              lineHeight: 1,
-            }}
-            title="Close sidebar"
-          >
-            ×
-          </button>
+          {/* Left close icon removed to prevent minimizing */}
+          <div style={{ width: 24 }} />
         </div>
 <div className="sidebar-section">
         <div className="sidebar-section-title">Chats</div>
@@ -702,40 +715,27 @@ return (
     <div className="chat-wrapper">
       {/* Header */}
       <header className="chat-header">
-        <div className="chat-header-left">
-          <div>
-            <div
-              className="chat-title"
-              style={{ display: "flex", alignItems: "center", gap: "8px" }}
-            >
-              <img
-                src="src/assets/indigo-logo.png"
-                alt="IndiGo Logo"
-                style={{ height: "30px" }}
-              />
-              Flight Assistant
-            </div>
-            <div className="chat-subtitle">
-              <Sparkles size={20} /> {currentStatus}
+        <div className="chat-header-left" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <img
+              src="src/assets/indigo-logo.png"
+              alt="IndiGo Logo"
+              style={{ height: "30px" }}
+            />
+            <div>
+              <div className="chat-title">Flight Assistant</div>
+              <div className="chat-subtitle">
+                <Sparkles size={20} /> {currentStatus}
+              </div>
             </div>
           </div>
+
+          {/* left header action removed per request */}
+          <div style={{ width: 0 }} />
         </div>
         <div className="chat-header-right">
-          <button
-            className="header-pill"
-            onClick={() => setIsSidebarOpen((prev) => !prev)}
-            type="button"
-          >
-            {isSidebarOpen ? "Hide chats" : "Show chats"}
-          </button>
-
-          <button
-            className="header-pill"
-            onClick={handleNewChat}
-            type="button"
-          >
-            New Chat
-          </button>
+          {/* Right header controls removed per request */}
+          <div style={{ width: 120 }} />
         </div>
       </header> 
       
@@ -955,5 +955,3 @@ return (
   </div>
 );
 }
-
-
