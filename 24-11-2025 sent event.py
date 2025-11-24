@@ -1,6 +1,7 @@
+ 
 # Usage:
 #   python src/send_events.py
- 
+#
 # Required env (.env or environment):
 #   EVENTHUB_CONNECTION_STRING
 #   EVENTHUB_NAME
@@ -17,17 +18,18 @@ from typing import Dict, Optional, List
 from azure.eventhub import EventData
 from azure.eventhub.aio import EventHubProducerClient
  
-# # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-# #  IMPORT YOUR EMAIL-EXTRACTOR LOGIC HERE
-# # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-from test2 import (
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#  IMPORT YOUR EMAIL-EXTRACTOR LOGIC HERE
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+from latest_test import (
     get_all_messages,
     process_single_email,
+    move_message_to_archive,   # 👈 NEW
 )
-# # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
  
  
-# # ------------------ Utilities ------------------
+# ------------------ Utilities ------------------
  
 def load_env(path: str = ".env") -> None:
     """Minimal .env loader (no external dependency).
@@ -224,8 +226,7 @@ async def send_all_advisories_from_email() -> None:
           * Extract advisory JSON using process_single_email()
           * If ENV=local → save JSON file
           * Immediately send that advisory as an Event to Azure Event Hub
- 
-    No separate "collect then send" phase – creation and sending happen together.
+          * If Event send is successful → move that email to Archive
     """
     if not CONNECTION_STRING:
         raise ValueError(
@@ -287,7 +288,6 @@ async def send_all_advisories_from_email() -> None:
                         print(f"   ✓ Saved advisory JSON ({station_count} station(s)) to {filepath}")
                     except Exception as e:
                         print(f"   ✗ Error saving JSON file {filepath}: {e}")
- 
                 else:
                     print("   (global ENV) Not writing JSON file, only sending to EventHub.")
  
@@ -295,6 +295,17 @@ async def send_all_advisories_from_email() -> None:
                 try:
                     await send_single_event_with_producer(producer, weather_advisory)
                     advisories_sent += 1
+ 
+                    # ✅ Only now (after successful send) move the email to Archive
+                    try:
+                        moved_ok = move_message_to_archive(message["id"])
+                        if moved_ok:
+                            print("   📦 Email archived successfully after sending event.")
+                        else:
+                            print("   ⚠️ Email could not be archived (see logs above).")
+                    except Exception as archive_err:
+                        print(f"   ⚠️ Exception while archiving email: {archive_err}")
+ 
                 except Exception as e:
                     print(f"   ✗ Error sending advisory event: {e}")
  
@@ -342,7 +353,7 @@ def main() -> None:
             sys.exit(1)
         return
  
-    # Default behavior: single-pass email → JSON [+optional file] → EventHub
+    # Default behavior: single-pass email → JSON [+optional file] → EventHub (+ archive)
     try:
         asyncio.run(send_all_advisories_from_email())
     except KeyboardInterrupt:
@@ -354,3 +365,4 @@ def main() -> None:
  
 if __name__ == "__main__":
     main()
+ 
