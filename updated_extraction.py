@@ -38,9 +38,8 @@ IS_LOCAL_ENV = (ENV == "local")
 # ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN")  # <--- or keep your hardcoded token
 # USER_EMAIL = os.environ.get("USER_EMAIL")      # mailbox you are operating on
  
- 
-ACCESS_TOKEN =
-USER_EMAIL=
+ACCESS_TOKEN = 
+USER_EMAIL = 
  
 if not ACCESS_TOKEN:
     raise RuntimeError("ACCESS_TOKEN is not set. Please set it in .env or code.")
@@ -56,7 +55,7 @@ headers = {
 # Base URL for Microsoft Graph
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
  
-# Separate headers for JSON POST calls (like move → Archive, sendMail, etc.)
+# Separate headers for JSON POST calls (like move → Archive, reply, etc.)
 archive_headers = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Content-Type": "application/json",
@@ -354,23 +353,26 @@ def get_message_body_html(message_id: str) -> str:
     body = data.get("body", {})
     return body.get("content", "")
  
-# ===================== SEND ERROR EMAIL TO SENDER =====================
+# ===================== SEND ERROR EMAIL TO SENDER (NOW AS REPLY) =====================
  
 def send_advisory_error_email(message, missing_fields, invalid_fields, extra_reason: str | None = None):
     """
-    Send an email back to the original sender telling them which parameters
-    are missing or invalid, so that they can correct and resend.
+    Reply back to the SAME wrong email (not a new email).
+    Uses:
+      POST /users/{USER_EMAIL}/messages/{message_id}/reply
     """
     try:
         from_obj = message.get("from") or {}
         email_addr_obj = from_obj.get("emailAddress") or {}
         sender_address = email_addr_obj.get("address")
+        message_id = message.get("id")
  
-        if not sender_address:
-            print("   ⚠️ Cannot send error email: sender address missing in message.from.")
+        if not message_id:
+            print("   ⚠️ Cannot send reply: message id missing in message object.")
             return
  
         original_subject = message.get("subject") or "your weather advisory email"
+        # Subject is not needed for reply endpoint, but we keep it for logging
         subject = original_subject
  
         lines: list[str] = []
@@ -408,34 +410,25 @@ def send_advisory_error_email(message, missing_fields, invalid_fields, extra_rea
  
         body_text = "\n".join(lines)
  
-        url = f"{GRAPH_BASE}/users/{USER_EMAIL}/sendMail"
+        # ---- REPLY TO THE SAME MESSAGE ----
+        url = f"{GRAPH_BASE}/users/{USER_EMAIL}/messages/{message_id}/reply"
         payload = {
-            "message": {
-                "subject": subject,
-                "body": {
-                    "contentType": "Text",
-                    "content": body_text,
-                },
-                "toRecipients": [
-                    {
-                        "emailAddress": {
-                            "address": sender_address
-                        }
-                    }
-                ],
-            },
-            "saveToSentItems": True,
+            "comment": body_text
+            # We don't need "message" object here; comment is enough for simple reply
         }
  
         resp = requests.post(url, headers=archive_headers, json=payload)
         if resp.status_code == 202:
-            print(f"   ✉️ Sent parameter error notification email to {sender_address}")
+            if sender_address:
+                print(f"   ✉️ Replied with parameter error notification to {sender_address}")
+            else:
+                print("   ✉️ Replied with parameter error notification to original message (sender address not resolved).")
         else:
-            print("   ⚠️ Failed to send parameter error email.")
+            print("   ⚠️ Failed to send parameter error reply.")
             print("      Status:", resp.status_code)
             print("      Response:", resp.text)
     except Exception as e:
-        print(f"   ⚠️ Exception while sending error email: {e}")
+        print(f"   ⚠️ Exception while sending error reply: {e}")
  
 # ===================== ARCHIVE HELPERS =====================
  
@@ -688,9 +681,3 @@ def main():
  
 if __name__ == "__main__":
     main()
-
-
-
-
-use this - POST /users/{id | userPrincipalName}/messages/{id}/reply
-or this- POST /users/{id | userPrincipalName}/mailFolders/{id}/messages/{id}/reply
