@@ -36,13 +36,26 @@ IS_LOCAL_ENV = (ENV == "local")
  
 # NOTE: better to read from env, but keeping your current hardcoded token for now
 ACCESS_TOKEN =  
-USER_EMAIL=
+USER_EMAIL = 
+ 
+if not ACCESS_TOKEN:
+    raise RuntimeError("ACCESS_TOKEN is not set. Please set it in .env or code.")
 if not USER_EMAIL:
     raise RuntimeError("USER_EMAIL is not set. Please set it in .env or code.")
  
+# For normal Graph GETs (body, messages etc.)
 headers = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Prefer": 'outlook.body-content-type="html"'
+}
+ 
+# Base URL for Microsoft Graph
+GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+ 
+# Separate headers for JSON POST calls (like move → Archive)
+archive_headers = {
+    "Authorization": f"Bearer {ACCESS_TOKEN}",
+    "Content-Type": "application/json",
 }
  
 OUTPUT_DIR = "email_extracts"
@@ -225,24 +238,24 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
     soup = BeautifulSoup(html_content, "html.parser")
     text = soup.get_text("\n", strip=True)
     lines = [l.strip() for l in text.splitlines() if l.strip()]
-
+ 
     stations = []
     n = len(lines)
     i = 0
-
+ 
     while i < n:
         line = lines[i]
-
+ 
         # Station code = exactly 3 uppercase letters
         if re.fullmatch(r"[A-Z]{3}", line):
             station_code = line
             entry = {"station": station_code}
-
+ 
             window = lines[i + 1: i + 15]
-
+ 
             # ---------- operationProbability (FIXED) ----------
             prob_val = None
-
+ 
             # 1) Prefer numbers that are directly associated with a % sign,
             #    e.g. "30%", " 75 %", etc.
             for w in window:
@@ -252,27 +265,27 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
                     if 0 <= val <= 100:
                         prob_val = val
                         break
-
-
-
-
+ 
+ 
+ 
+ 
             if prob_val is not None:
                 # store as integer, % sign is ignored
                 entry["operationProbability"] = prob_val
-
+ 
             # ---------- weatherPhenomenon ----------
             for w in window:
                 if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
                     entry["weatherPhenomenon"] = w
                     break
-
+ 
             # ---------- advisory times (UTC only) ----------
             time_result = parse_advisory_times(window, mail_received_dt)
             if time_result:
                 start_utc_str, end_utc_str = time_result
                 entry["advisoryTimePeriodStartUTC"] = start_utc_str
                 entry["advisoryTimePeriodEndUTC"] = end_utc_str
-
+ 
             # Mandatory 5 fields only
             mandatory = [
                 "station",
@@ -283,17 +296,16 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
             ]
             if all(k in entry for k in mandatory):
                 stations.append(entry)
-
+ 
         i += 1
-
+ 
     return stations
-
  
 # ===================== GRAPH API EMAIL FUNCTIONS =====================
  
 def get_all_messages(page_size: int = 50, max_pages: int = None):
     url = (
-        f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages"
+        f"{GRAPH_BASE}/users/{USER_EMAIL}/messages"
         f"?$top={page_size}"
         "&$orderby=receivedDateTime desc"
         "&$select=id,subject,receivedDateTime,from"
@@ -326,7 +338,7 @@ def get_all_messages(page_size: int = 50, max_pages: int = None):
  
 def get_message_body_html(message_id: str) -> str:
     url = (
-        f"https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages/{message_id}"
+        f"{GRAPH_BASE}/users/{USER_EMAIL}/messages/{message_id}"
         "?$select=subject,body"
     )
  
@@ -339,6 +351,57 @@ def get_message_body_html(message_id: str) -> str:
     data = resp.json()
     body = data.get("body", {})
     return body.get("content", "")
+ 
+# ===================== ARCHIVE HELPERS =====================
+ 
+def get_archive_folder_id() -> str | None:
+    """
+    Fetch the Archive folder and return its id for USER_EMAIL.
+    Uses the well-known 'Archive' folder name.
+    """
+    url = f"{GRAPH_BASE}/users/{USER_EMAIL}/mailFolders/Archive"
+    resp = requests.get(url, headers=archive_headers)
+ 
+    if resp.status_code == 200:
+        data = resp.json()
+        folder_id = data.get("id")
+        if folder_id:
+            return folder_id
+        else:
+            print("   ⚠️ Archive folder found but no id field.")
+            return None
+    else:
+        print("   ⚠️ Failed to get Archive folder.")
+        print("      Status:", resp.status_code)
+        print("      Response:", resp.text)
+        return None
+ 
+def move_message_to_archive(message_id: str) -> bool:
+    """
+    Move the given message to the Archive folder.
+    Returns True if moved successfully, False otherwise.
+    """
+    archive_id = get_archive_folder_id()
+    if not archive_id:
+        print("   ⚠️ Could not resolve Archive folder id. Skipping archive move.")
+        return False
+ 
+    url = f"{GRAPH_BASE}/users/{USER_EMAIL}/messages/{message_id}/move"
+    body = {"destinationId": archive_id}
+ 
+    resp = requests.post(url, headers=archive_headers, json=body)
+ 
+    if resp.status_code == 201:  # Created = moved successfully
+        moved_msg = resp.json()
+        print("   📁 Message moved to Archive.")
+        print("      New folder id:", moved_msg.get("parentFolderId"))
+        print("      New message id:", moved_msg.get("id"))
+        return True
+    else:
+        print("   ⚠️ Failed to move message to Archive.")
+        print("      Status:", resp.status_code)
+        print("      Response:", resp.text)
+        return False
  
 # ===================== MAIN PROCESSING =====================
  
