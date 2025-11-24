@@ -35,9 +35,9 @@ IS_LOCAL_ENV = (ENV == "local")
 # ===================== CONFIG =====================
  
 # NOTE: better to read from env, but keeping your current hardcoded token for now
-ACCESS_TOKEN =  
-USER_EMAIL = 
- 
+
+ACCESS_TOKEN=
+USER_EMAIL=
 if not ACCESS_TOKEN:
     raise RuntimeError("ACCESS_TOKEN is not set. Please set it in .env or code.")
 if not USER_EMAIL:
@@ -148,23 +148,23 @@ def parse_advisory_times(window_lines, mail_received_dt_str):
       3) End UTC
       4) End LT
     """
-
+ 
     pattern = re.compile(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})')
     matches = []
-
+ 
     for line in window_lines:
         for m in pattern.finditer(line):
             matches.append(m.group(1).strip())
-
+ 
     # We need at least 3 matches (index 0 = start UTC, index 2 = end UTC)
     if len(matches) < 3:
         return None
-
+ 
     start_raw = matches[0]    # Start UTC
     end_raw = matches[2]      # End UTC (correct column)
-
+ 
     return start_raw, end_raw
-
+ 
  
 # ===================== FIELD LABEL CHECK =====================
  
@@ -522,3 +522,4 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
