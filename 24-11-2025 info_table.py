@@ -141,43 +141,30 @@ def build_utc_from_dd_mon_hhmm(match_obj, mail_dt_utc):
  
 def parse_advisory_times(window_lines, mail_received_dt_str):
     """
-    Window ke andar se advisory ke liye:
-      - Start UTC
-      - End UTC
-
-    Ab hum mail ke andar jo raw format hai (jaise "0630/25 Nov")
-    Wahi string as-is return karenge, ISO datetime me convert NHI karenge.
+    Extract raw Start UTC and raw End UTC from table.
+    Column mapping in text:
+      1) Start UTC
+      2) Start LT
+      3) End UTC
+      4) End LT
     """
-    # Param ab use nahi ho raha, sirf signature maintain karne ke liye rakha hai
-    _ = mail_received_dt_str
 
-    # Pattern: 4 ya 3 digit time + "/" + day + month-abbrev
-    # e.g. "0630/25 Nov", "730/5 Jan" etc.
     pattern = re.compile(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})')
-
     matches = []
+
     for line in window_lines:
         for m in pattern.finditer(line):
-            # Pure match ko le lo, trim karke
-            raw_str = m.group(1).strip()
-            matches.append(raw_str)
+            matches.append(m.group(1).strip())
 
-    # Kam se kam 2 values chahiye: start & end
-    if len(matches) < 2:
+    # We need at least 3 matches (index 0 = start UTC, index 2 = end UTC)
+    if len(matches) < 3:
         return None
 
-    start_raw = matches[0]  # e.g. "0630/25 Nov"
-    end_raw = matches[1]    # e.g. "0830/25 Nov"
+    start_raw = matches[0]    # Start UTC
+    end_raw = matches[2]      # End UTC (correct column)
 
-    # Direct raw strings return kar rahe hain
     return start_raw, end_raw
 
- 
-    start_utc_str = start_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_utc_str = end_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
- 
-    # ✅ Only return UTC strings (no LT fields)
-    return start_utc_str, end_utc_str
  
 # ===================== FIELD LABEL CHECK =====================
  
@@ -516,7 +503,7 @@ def process_all_emails(save_files: bool | None = None):
     print(f"⏭️  Skipped emails: {skipped_emails}")
     if save_files:
         print(f"📁 Files saved in: {OUTPUT_DIR}/")
-njnh    else:
+    else:
         print("📁 No files saved (save_files=False).")
  
     return len(all_messages), successful_extractions
