@@ -1,265 +1,98 @@
-import os
-import json
-import requests
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any
-
-from bs4 import BeautifulSoup  # pip install beautifulsoup4
-
-
-# ------------- TIMEZONE HELPERS -------------
-
-IST_OFFSET = timedelta(hours=5, minutes=30)
-
-def utc_str_to_ist_str(utc_str: str) -> str:
-    """
-    Convert an ISO8601 UTC string like '2025-11-21T16:00:00Z'
-    to IST: '2025-11-21T21:30:00+05:30'
-    """
-    if not utc_str:
-        return None
-    # Handle trailing Z
-    if utc_str.endswith("Z"):
-        utc_str = utc_str.replace("Z", "+00:00")
-    dt_utc = datetime.fromisoformat(utc_str)
-    if dt_utc.tzinfo is None:
-        dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-    dt_ist = dt_utc + IST_OFFSET
-    return dt_ist.isoformat()
-
-
-# ------------- GRAPH FETCH -------------
-
-def fetch_user_emails(access_token: str, user_email: str, top: int = 50) -> List[Dict[str, Any]]:
-    """
-    Fetch emails with full body (HTML) from Graph and return a structured list.
-    """
-    url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-        # Ask Graph to give the body as HTML (works even if original is text)
-        "Prefer": 'outlook.body-content-type="html"'
-    }
-    params = {
-        "$top": top,
-        "$select": "id,subject,receivedDateTime,sender,body"
-    }
-    resp = requests.get(url, headers=headers, params=params)
-    resp.raise_for_status()
-    data = resp.json()
-    messages = data.get("value", [])
-
-    structured = []
-    for msg in messages:
-        structured.append({
-            "messageId": msg.get("id"),
-            "subject": msg.get("subject"),
-            "senderName": (msg.get("sender") or {}).get("emailAddress", {}).get("name"),
-            "senderAddress": (msg.get("sender") or {}).get("emailAddress", {}).get("address"),
-            "receivedDateTime": msg.get("receivedDateTime"),  # UTC
-            "bodyHtml": (msg.get("body") or {}).get("content", "")  # HTML / text
-        })
-    return structured
-
-
-# ------------- BODY → TEXT -------------
-
-def html_to_text(body_html: str) -> str:
-    """
-    Convert HTML body to plain text with newlines.
-    Works even if body_html is already plain text.
-    """
-    if not body_html:
-        return ""
-    soup = BeautifulSoup(body_html, "html.parser")
-    text = soup.get_text(separator="\n")
-    # Normalize CRLF, remove trailing spaces
-    lines = [line.strip() for line in text.splitlines()]
-    # Drop empty lines for easier parsing
-    lines = [line for line in lines if line]
-    return "\n".join(lines)
-
-
-# ------------- TABLE PARSER (ROBUST-ish FOR YOUR TEMPLATE) -------------
-
-HEADER_NORMALS = {
-    "station",
-    "weatherphenomenon",
-    "weather phenomenon",
-    "phenomenon",
-    "operationprobability",
-    "operation probability",
-    "operationalprobability",
-    "operational probability",
-    "advisorytimeperiodstartutc",
-    "advisory timeperiodstart utc",
-    "advisory time period start (utc)",
-    "advisorytimeperiodendutc",
-    "advisory timeperiod endutc",
-    "advisory time period end (utc)",
-}
-
-
-def normalize_header(s: str) -> str:
-    return "".join(s.lower().split())
-
-
-def is_header_line(line: str) -> bool:
-    norm = normalize_header(line)
-    return norm in HEADER_NORMALS
-
-
-def extract_station_rows_from_text(body_text: str) -> List[Dict[str, Any]]:
-    """
-    Parse your specific template where the table is essentially vertical:
-
-    station
-    weatherPhenomenon
-    operationProbability
-    advisoryTimePeriodStartUTC
-    advisoryTimePeriodEndUTC
-
-    repeated for each station.
-
-    Returns list of station dicts.
-    """
-    if not body_text:
-        return []
-
-    lines = [l.strip() for l in body_text.splitlines() if l.strip()]
-    if not lines:
-        return []
-
-    # 1. Find the first "Station" header
-    station_header_idx = None
-    for i, line in enumerate(lines):
-        if "station" in line.lower():
-            station_header_idx = i
-            break
-
-    if station_header_idx is None:
-        # No explicit 'station' header found
-        return []
-
-    # 2. Collect data lines after the headers, removing known header labels
-    data_lines = []
-    for line in lines[station_header_idx + 1 :]:
-        if is_header_line(line):
-            # skip header repeated lines
-            continue
-        data_lines.append(line)
-
+def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None):
+    logger.debug("Starting NLP extraction of weather stations.")
+    soup = BeautifulSoup(html_content, "html.parser")
+    text = soup.get_text("\n", strip=True)
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+ 
     stations = []
-    # We expect data in groups of 5 lines: station, phenomenon, prob, startUTC, endUTC
-    chunk_size = 5
-    for i in range(0, len(data_lines), chunk_size):
-        chunk = data_lines[i : i + chunk_size]
-        if len(chunk) < 5:
-            break  # incomplete row at end, ignore
-
-        station, phenomenon, prob_str, start_utc_str, end_utc_str = chunk
-
-        # Basic validation
-        if len(station) > 5 and " " in station:
-            # Probably junk, skip this row
-            continue
-
-        # Probability as int (robust: pick first integer)
-        operation_prob = None
-        for token in prob_str.replace("%", " ").split():
-            if token.isdigit():
-                operation_prob = int(token)
-                break
-
-        # Validate that time fields look like ISO-UTC timestamps
-        if "T" not in start_utc_str or "T" not in end_utc_str:
-            # Your real mails have ISO strings like 2025-11-21T16:00:00Z;
-            # if not, skip row (or you can add more parsing logic here).
-            continue
-
-        station_dict = {
-            "station": station.strip(),
-            "weatherPhenomenon": phenomenon.strip(),
-            "operationProbability": operation_prob,
-            "advisoryTimePeriodStartUTC": start_utc_str.strip(),
-            "advisoryTimePeriodEndUTC": end_utc_str.strip(),
-        }
-        stations.append(station_dict)
-
+    n = len(lines)
+    i = 0
+ 
+    logger.debug("Total lines extracted from HTML: %d", n)
+ 
+    while i < n:
+        line = lines[i]
+ 
+        # Station code = exactly 3 uppercase letters
+        if re.fullmatch(r"[A-Z]{3}", line):
+            station_code = line
+            logger.debug("Found potential station code at line %d: %s", i, station_code)
+            entry = {"station": station_code}
+ 
+            window = lines[i + 1: i + 15]
+ 
+            # ---------- operationProbability (FIXED) ----------
+            prob_val = None
+ 
+            for w in window:
+                m = re.search(r"(\d{1,3})\s*%", w)
+                if m:
+                    val = int(m.group(1))
+                    if 0 <= val <= 100:
+                        prob_val = val
+                        logger.debug("Found operationProbability=%d for station=%s", prob_val, station_code)
+                        break
+ 
+            if prob_val is not None:
+                entry["operationProbability"] = prob_val
+ 
+            # ---------- weatherPhenomenon ----------
+            for w in window:
+                if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
+                    entry["weatherPhenomenon"] = w
+                    logger.debug("Found weatherPhenomenon=%s for station=%s", w, station_code)
+                    break
+ 
+            # ---------- advisory times (UTC only) ----------
+            time_result = parse_advisory_times(window, mail_received_dt)
+ 
+            if time_result:
+                start_utc_str, end_utc_str = time_result
+                start_utc_formatted = build_utc_from_dd_mon_hhmm(
+                    re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', start_utc_str),
+                    parse_mail_received_datetime(mail_received_dt)
+                )
+                end_utc_formatted = build_utc_from_dd_mon_hhmm(
+                    re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', end_utc_str),
+                    parse_mail_received_datetime(mail_received_dt)
+                )
+                entry["advisoryTimePeriodStartUTC"] = (
+                    start_utc_formatted.strftime("%Y-%m-%dT%H:%M:%S")
+                    if start_utc_formatted else start_utc_str
+                )
+                entry["advisoryTimePeriodEndUTC"] = (
+                    end_utc_formatted.strftime("%Y-%m-%dT%H:%M:%S")
+                    if end_utc_formatted else end_utc_str
+                )
+                logger.debug(
+                    "Station=%s advisory times: start=%s end=%s",
+                    station_code,
+                    entry["advisoryTimePeriodStartUTC"],
+                    entry["advisoryTimePeriodEndUTC"],
+                )
+ 
+            # Mandatory 5 fields only
+            mandatory = [
+                "station",
+                "weatherPhenomenon",
+                "operationProbability",
+                "advisoryTimePeriodStartUTC",
+                "advisoryTimePeriodEndUTC",
+            ]
+            if all(k in entry for k in mandatory):
+                stations.append(entry)
+                logger.info(
+                    "Completed station entry: %s", entry
+                )
+            else:
+                logger.info(
+                    "Incomplete station entry for '%s', missing fields, ignoring: %s",
+                    station_code,
+                    [k for k in mandatory if k not in entry],
+                )
+ 
+        i += 1
+ 
+    logger.info("NLP extraction complete. Total valid stations: %d", len(stations))
     return stations
-
-
-def parse_email_body_to_stations(body_html: str) -> List[Dict[str, Any]]:
-    """
-    High-level parser:
-    1) Convert HTML → text
-    2) Try to parse using the vertical-table pattern in your examples.
-    (In future you can extend this with more patterns / HTML-table logic.)
-    """
-    text = html_to_text(body_html)
-    stations = extract_station_rows_from_text(text)
-    return stations
-
-
-# ------------- MAIN ORCHESTRATOR -------------
-
-def process_emails_and_save_json(
-    access_token: str,
-    user_email: str,
-    output_dir: str = "email_json_output",
-    top: int = 50,
-):
-    os.makedirs(output_dir, exist_ok=True)
-
-    emails = fetch_user_emails(access_token, user_email, top=top)
-
-    for msg in emails:
-        stations = parse_email_body_to_stations(msg["bodyHtml"])
-
-        # If there's no table-like data, you can choose to skip
-        if not stations:
-            # Uncomment if you want to log:
-            # print(f"Skipping message {msg['subject']} - no station data found")
-            continue
-
-        # Convert station UTC times to LT (IST)
-        for st in stations:
-            start_utc = st.get("advisoryTimePeriodStartUTC")
-            end_utc = st.get("advisoryTimePeriodEndUTC")
-            st["advisoryTimePeriodStartLT"] = utc_str_to_ist_str(start_utc)
-            st["advisoryTimePeriodEndLT"] = utc_str_to_ist_str(end_utc)
-
-        # createdAt = receivedDateTime converted to IST
-        created_at_ist = utc_str_to_ist_str(msg["receivedDateTime"])
-
-        email_json = {
-            "createdAt": created_at_ist,
-            "stations": stations,
-        }
-
-        # Build a safe filename: timestamp + first part of messageId
-        safe_msg_id = (msg["messageId"] or "noid").replace("/", "_").replace("\\", "_")
-        ts = (msg["receivedDateTime"] or "no_ts").replace(":", "").replace("-", "").replace("T", "_")
-        filename = f"{ts}_{safe_msg_id[:20]}.json"
-        filepath = os.path.join(output_dir, filename)
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump(email_json, f, ensure_ascii=False, indent=2)
-
-        # Optional: print for debug
-        # print(f"Saved: {filepath}")
-
-
-# ------------- EXAMPLE USAGE -------------
-
-if __name__ == "__main__":
-    ACCESS_TOKEN = "YOUR_ACCESS_TOKEN_HERE"
-    USER_EMAIL = "metstratosphere@goIndiGo.in"
-
-    process_emails_and_save_json(
-        access_token=ACCESS_TOKEN,
-        user_email=USER_EMAIL,
-        output_dir="met_advisory_jsons",
-        top=50,
-    )
+ 
