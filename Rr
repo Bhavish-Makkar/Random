@@ -1,29 +1,213 @@
+def parse_table_rows_from_lines(lines, mail_received_dt=None):
+    """
+    Look for a header line that contains 'station' and parse subsequent
+    lines as table rows. Returns list of station dicts or [] if not found.
+    Splitting uses either '|' separators or runs of two+ spaces (typical from HTML->text).
+    """
+    stations = []
+    n = len(lines)
+    header_idx = None
+    for idx, line in enumerate(lines):
+        if 'station' in line.lower():
+            header_idx = idx
+            break
+
+    if header_idx is None:
+        return []  # no table header found
+
+    # Build header columns
+    header_line = lines[header_idx]
+    # prefer pipe split if present
+    if '|' in header_line:
+        header_cols = [c.strip().lower() for c in header_line.split('|') if c.strip()]
+    else:
+        header_cols = [c.strip().lower() for c in re.split(r'\s{2,}', header_line) if c.strip()]
+
+    # Normalize header names for mapping
+    col_map = {}
+    for i, h in enumerate(header_cols):
+        h_norm = h.replace('\n', ' ').strip()
+        if 'station' in h_norm:
+            col_map['station'] = i
+        elif 'status' in h_norm:
+            col_map['status'] = i
+        elif 'weather' in h_norm and ('phenomenon' in h_norm or 'phenom' in h_norm):
+            col_map['weatherPhenomenon'] = i
+        elif 'operational' in h_norm and ('prob' in h_norm or 'probability' in h_norm):
+            col_map['operationProbability'] = i
+        # advisory start/end UTC columns: try to detect "start (UTC)" and "end (UTC)"
+        elif 'start' in h_norm and 'utc' in h_norm:
+            # if multiple start columns, prefer the one that mentions UTC explicitly
+            col_map.setdefault('advisoryTimePeriodStartUTC', i)
+        elif 'end' in h_norm and 'utc' in h_norm:
+            col_map.setdefault('advisoryTimePeriodEndUTC', i)
+        # fallback names
+        elif 'start' in h_norm and 'time' in h_norm:
+            col_map.setdefault('advisoryTimePeriodStartUTC', i)
+        elif 'end' in h_norm and 'time' in h_norm:
+            col_map.setdefault('advisoryTimePeriodEndUTC', i)
+
+    # If we don't at least know station column and one time column, bail
+    if 'station' not in col_map:
+        return []
+
+    # Parse rows after header until we hit an obvious non-table zone
+    for r_idx in range(header_idx + 1, n):
+        row_line = lines[r_idx]
+        if not row_line.strip():
+            # blank line => end of table
+            break
+
+        if '|' in row_line:
+            cols = [c.strip() for c in row_line.split('|') if c.strip() or True]
+        else:
+            cols = [c.strip() for c in re.split(r'\s{2,}', row_line) if c.strip() or True]
+
+        # if row doesn't have enough columns skip
+        if len(cols) < 1:
+            continue
+
+        # safe-get helper
+        def get_col(name):
+            idx = col_map.get(name)
+            if idx is None or idx >= len(cols):
+                return ""
+            return cols[idx]
+
+        station_val = get_col('station').upper().strip()
+        # sanity: station should be 2-4 uppercase letters/numbers
+        if not re.fullmatch(r"[A-Z0-9]{2,6}", station_val):
+            # skip rows where station cell doesn't look like a station code
+            # (this avoids picking 'NEW' if it got placed in station column)
+            continue
+
+        entry = {"station": station_val}
+
+        # operation probability
+        op_prob_raw = get_col('operationProbability')
+        mprob = re.search(r'(\d{1,3})\s*%', op_prob_raw)
+        if mprob:
+            entry['operationProbability'] = int(mprob.group(1))
+        else:
+            # try to find percentage anywhere in the row
+            mprob2 = re.search(r'(\d{1,3})\s*%', row_line)
+            if mprob2:
+                entry['operationProbability'] = int(mprob2.group(1))
+
+        # weather phenomenon
+        wp = get_col('weatherPhenomenon')
+        if not wp:
+            # fallback: try to find an uppercase token of length 2-6 in row (like FG)
+            mwp = re.search(r'\b([A-Z]{2,6})\b', row_line)
+            if mwp:
+                wp = mwp.group(1)
+        if wp:
+            entry['weatherPhenomenon'] = wp.strip().upper()
+
+        # advisory times: try to parse from respective columns if present, else scan row
+        start_raw = get_col('advisoryTimePeriodStartUTC')
+        end_raw = get_col('advisoryTimePeriodEndUTC')
+
+        # If those header columns were not explicitly mapped, try to extract time-like tokens from the row.
+        if not start_raw or not re.search(r'\d{3,4}/\d{1,2}\s*[A-Za-z]{3}', start_raw):
+            mstart = re.search(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})', row_line)
+            start_raw = mstart.group(1) if mstart else start_raw
+
+        if not end_raw or not re.search(r'\d{3,4}/\d{1,2}\s*[A-Za-z]{3}', end_raw):
+            # find second match if present
+            matches = re.findall(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})', row_line)
+            if len(matches) >= 2:
+                end_raw = matches[1]
+            elif len(matches) == 1:
+                # maybe end on next column - leave as is
+                end_raw = ""
+
+        # convert raw times to UTC datetimes
+        if start_raw:
+            m = re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', start_raw)
+            if m:
+                dt_start = build_utc_from_dd_mon_hhmm(m, parse_mail_received_datetime(mail_received_dt))
+                if dt_start:
+                    entry['advisoryTimePeriodStartUTC'] = dt_start.strftime("%Y-%m-%dT%H:%M:%S")
+        if end_raw:
+            m2 = re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', end_raw)
+            if m2:
+                dt_end = build_utc_from_dd_mon_hhmm(m2, parse_mail_received_datetime(mail_received_dt))
+                if dt_end:
+                    entry['advisoryTimePeriodEndUTC'] = dt_end.strftime("%Y-%m-%dT%H:%M:%S")
+
+        # status
+        status_val = get_col('status')
+        if status_val:
+            entry['status'] = status_val.strip().upper()
+        else:
+            # try inline "Status: X" within row
+            mstat = re.search(r'status\s*[:\-]?\s*([A-Za-z0-9]{1,20})', row_line, re.I)
+            if mstat:
+                entry['status'] = mstat.group(1).upper()
+
+        # ensure mandatory fields present (same as your original check)
+        mandatory = [
+            "station",
+            "weatherPhenomenon",
+            "operationProbability",
+            "advisoryTimePeriodStartUTC",
+            "advisoryTimePeriodEndUTC",
+        ]
+        if all(k in entry for k in mandatory):
+            stations.append(entry)
+        else:
+            # if row is missing mandatory fields, skip it to avoid mixing rows
+            continue
+
+    return stations
+
+
 def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None):
-    logger.debug("Starting NLP extraction of weather stations.")
+    """
+    New version: try to parse explicit table first (more reliable),
+    then fallback to previous NLP window approach if table parse fails.
+    """
+    logger.debug("Starting NLP extraction (table-aware) of weather stations.")
     soup = BeautifulSoup(html_content, "html.parser")
     text = soup.get_text("\n", strip=True)
     lines = [l.strip() for l in text.splitlines() if l.strip()]
- 
+
+    # 1) Try table-aware parsing (preferred)
+    table_stations = parse_table_rows_from_lines(lines, mail_received_dt=mail_received_dt)
+    if table_stations:
+        logger.info("Table-based extraction succeeded with %d stations.", len(table_stations))
+        return table_stations
+
+    # 2) Fallback to original NLP window parsing (keep your existing logic)
+    logger.debug("Table parsing yielded no results, falling back to window-based NLP extractor.")
+
+    # existing NLP code kept largely unchanged from your original function:
+    status_map = _extract_status_map_from_lines(lines)
+    status_values = set(status_map.values())
+    logger.debug("Detected status_map: %s", status_map)
+
     stations = []
     n = len(lines)
     i = 0
- 
+
     logger.debug("Total lines extracted from HTML: %d", n)
- 
+
     while i < n:
         line = lines[i]
- 
+
         # Station code = exactly 3 uppercase letters
-        if re.fullmatch(r"[A-Z]{3}", line):
+        # BUT avoid treating known status values (like 'NEW') as station codes.
+        if re.fullmatch(r"[A-Z]{3}", line) and line not in status_values:
             station_code = line
             logger.debug("Found potential station code at line %d: %s", i, station_code)
             entry = {"station": station_code}
- 
+
             window = lines[i + 1: i + 15]
- 
+
             # ---------- operationProbability (FIXED) ----------
             prob_val = None
- 
+
             for w in window:
                 m = re.search(r"(\d{1,3})\s*%", w)
                 if m:
@@ -32,20 +216,20 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
                         prob_val = val
                         logger.debug("Found operationProbability=%d for station=%s", prob_val, station_code)
                         break
- 
+
             if prob_val is not None:
                 entry["operationProbability"] = prob_val
- 
+
             # ---------- weatherPhenomenon ----------
             for w in window:
                 if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
                     entry["weatherPhenomenon"] = w
                     logger.debug("Found weatherPhenomenon=%s for station=%s", w, station_code)
                     break
- 
+
             # ---------- advisory times (UTC only) ----------
             time_result = parse_advisory_times(window, mail_received_dt)
- 
+
             if time_result:
                 start_utc_str, end_utc_str = time_result
                 start_utc_formatted = build_utc_from_dd_mon_hhmm(
@@ -70,8 +254,23 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
                     entry["advisoryTimePeriodStartUTC"],
                     entry["advisoryTimePeriodEndUTC"],
                 )
- 
-            # Mandatory 5 fields only
+
+            # ---------- STATUS (new) ----------
+            for relative_index, w in enumerate(window):
+                absolute_index = i + 1 + relative_index
+                if absolute_index in status_map:
+                    entry["status"] = status_map[absolute_index]
+                    logger.debug("Attached status=%s to station=%s (found at line index=%d)",
+                                 entry["status"], station_code, absolute_index)
+                    break
+                m_inline = re.search(r'status\s*[:\-]?\s*([A-Za-z0-9]{1,20})', w, re.I)
+                if m_inline:
+                    entry["status"] = m_inline.group(1).upper()
+                    logger.debug("Attached inline status=%s to station=%s (from window text)",
+                                 entry["status"], station_code)
+                    break
+
+            # Mandatory 5 fields only (unchanged)
             mandatory = [
                 "station",
                 "weatherPhenomenon",
@@ -90,9 +289,8 @@ def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None
                     station_code,
                     [k for k in mandatory if k not in entry],
                 )
- 
+
         i += 1
- 
+
     logger.info("NLP extraction complete. Total valid stations: %d", len(stations))
     return stations
- 
