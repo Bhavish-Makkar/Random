@@ -1,296 +1,108 @@
-def parse_table_rows_from_lines(lines, mail_received_dt=None):
-    """
-    Look for a header line that contains 'station' and parse subsequent
-    lines as table rows. Returns list of station dicts or [] if not found.
-    Splitting uses either '|' separators or runs of two+ spaces (typical from HTML->text).
-    """
-    stations = []
-    n = len(lines)
-    header_idx = None
-    for idx, line in enumerate(lines):
-        if 'station' in line.lower():
-            header_idx = idx
-            break
-
-    if header_idx is None:
-        return []  # no table header found
-
-    # Build header columns
-    header_line = lines[header_idx]
-    # prefer pipe split if present
-    if '|' in header_line:
-        header_cols = [c.strip().lower() for c in header_line.split('|') if c.strip()]
-    else:
-        header_cols = [c.strip().lower() for c in re.split(r'\s{2,}', header_line) if c.strip()]
-
-    # Normalize header names for mapping
-    col_map = {}
-    for i, h in enumerate(header_cols):
-        h_norm = h.replace('\n', ' ').strip()
-        if 'station' in h_norm:
-            col_map['station'] = i
-        elif 'status' in h_norm:
-            col_map['status'] = i
-        elif 'weather' in h_norm and ('phenomenon' in h_norm or 'phenom' in h_norm):
-            col_map['weatherPhenomenon'] = i
-        elif 'operational' in h_norm and ('prob' in h_norm or 'probability' in h_norm):
-            col_map['operationProbability'] = i
-        # advisory start/end UTC columns: try to detect "start (UTC)" and "end (UTC)"
-        elif 'start' in h_norm and 'utc' in h_norm:
-            # if multiple start columns, prefer the one that mentions UTC explicitly
-            col_map.setdefault('advisoryTimePeriodStartUTC', i)
-        elif 'end' in h_norm and 'utc' in h_norm:
-            col_map.setdefault('advisoryTimePeriodEndUTC', i)
-        # fallback names
-        elif 'start' in h_norm and 'time' in h_norm:
-            col_map.setdefault('advisoryTimePeriodStartUTC', i)
-        elif 'end' in h_norm and 'time' in h_norm:
-            col_map.setdefault('advisoryTimePeriodEndUTC', i)
-
-    # If we don't at least know station column and one time column, bail
-    if 'station' not in col_map:
-        return []
-
-    # Parse rows after header until we hit an obvious non-table zone
-    for r_idx in range(header_idx + 1, n):
-        row_line = lines[r_idx]
-        if not row_line.strip():
-            # blank line => end of table
-            break
-
-        if '|' in row_line:
-            cols = [c.strip() for c in row_line.split('|') if c.strip() or True]
-        else:
-            cols = [c.strip() for c in re.split(r'\s{2,}', row_line) if c.strip() or True]
-
-        # if row doesn't have enough columns skip
-        if len(cols) < 1:
-            continue
-
-        # safe-get helper
-        def get_col(name):
-            idx = col_map.get(name)
-            if idx is None or idx >= len(cols):
-                return ""
-            return cols[idx]
-
-        station_val = get_col('station').upper().strip()
-        # sanity: station should be 2-4 uppercase letters/numbers
-        if not re.fullmatch(r"[A-Z0-9]{2,6}", station_val):
-            # skip rows where station cell doesn't look like a station code
-            # (this avoids picking 'NEW' if it got placed in station column)
-            continue
-
-        entry = {"station": station_val}
-
-        # operation probability
-        op_prob_raw = get_col('operationProbability')
-        mprob = re.search(r'(\d{1,3})\s*%', op_prob_raw)
-        if mprob:
-            entry['operationProbability'] = int(mprob.group(1))
-        else:
-            # try to find percentage anywhere in the row
-            mprob2 = re.search(r'(\d{1,3})\s*%', row_line)
-            if mprob2:
-                entry['operationProbability'] = int(mprob2.group(1))
-
-        # weather phenomenon
-        wp = get_col('weatherPhenomenon')
-        if not wp:
-            # fallback: try to find an uppercase token of length 2-6 in row (like FG)
-            mwp = re.search(r'\b([A-Z]{2,6})\b', row_line)
-            if mwp:
-                wp = mwp.group(1)
-        if wp:
-            entry['weatherPhenomenon'] = wp.strip().upper()
-
-        # advisory times: try to parse from respective columns if present, else scan row
-        start_raw = get_col('advisoryTimePeriodStartUTC')
-        end_raw = get_col('advisoryTimePeriodEndUTC')
-
-        # If those header columns were not explicitly mapped, try to extract time-like tokens from the row.
-        if not start_raw or not re.search(r'\d{3,4}/\d{1,2}\s*[A-Za-z]{3}', start_raw):
-            mstart = re.search(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})', row_line)
-            start_raw = mstart.group(1) if mstart else start_raw
-
-        if not end_raw or not re.search(r'\d{3,4}/\d{1,2}\s*[A-Za-z]{3}', end_raw):
-            # find second match if present
-            matches = re.findall(r'(\d{3,4}/\d{1,2}\s*[A-Za-z]{3})', row_line)
-            if len(matches) >= 2:
-                end_raw = matches[1]
-            elif len(matches) == 1:
-                # maybe end on next column - leave as is
-                end_raw = ""
-
-        # convert raw times to UTC datetimes
-        if start_raw:
-            m = re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', start_raw)
-            if m:
-                dt_start = build_utc_from_dd_mon_hhmm(m, parse_mail_received_datetime(mail_received_dt))
-                if dt_start:
-                    entry['advisoryTimePeriodStartUTC'] = dt_start.strftime("%Y-%m-%dT%H:%M:%S")
-        if end_raw:
-            m2 = re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', end_raw)
-            if m2:
-                dt_end = build_utc_from_dd_mon_hhmm(m2, parse_mail_received_datetime(mail_received_dt))
-                if dt_end:
-                    entry['advisoryTimePeriodEndUTC'] = dt_end.strftime("%Y-%m-%dT%H:%M:%S")
-
-        # status
-        status_val = get_col('status')
-        if status_val:
-            entry['status'] = status_val.strip().upper()
-        else:
-            # try inline "Status: X" within row
-            mstat = re.search(r'status\s*[:\-]?\s*([A-Za-z0-9]{1,20})', row_line, re.I)
-            if mstat:
-                entry['status'] = mstat.group(1).upper()
-
-        # ensure mandatory fields present (same as your original check)
-        mandatory = [
-            "station",
-            "weatherPhenomenon",
-            "operationProbability",
-            "advisoryTimePeriodStartUTC",
-            "advisoryTimePeriodEndUTC",
-        ]
-        if all(k in entry for k in mandatory):
-            stations.append(entry)
-        else:
-            # if row is missing mandatory fields, skip it to avoid mixing rows
-            continue
-
-    return stations
-
-
-def extract_weather_stations_nlp(html_content: str, mail_received_dt: str = None):
-    """
-    New version: try to parse explicit table first (more reliable),
-    then fallback to previous NLP window approach if table parse fails.
-    """
-    logger.debug("Starting NLP extraction (table-aware) of weather stations.")
-    soup = BeautifulSoup(html_content, "html.parser")
-    text = soup.get_text("\n", strip=True)
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
-
-    # 1) Try table-aware parsing (preferred)
-    table_stations = parse_table_rows_from_lines(lines, mail_received_dt=mail_received_dt)
-    if table_stations:
-        logger.info("Table-based extraction succeeded with %d stations.", len(table_stations))
-        return table_stations
-
-    # 2) Fallback to original NLP window parsing (keep your existing logic)
-    logger.debug("Table parsing yielded no results, falling back to window-based NLP extractor.")
-
-    # existing NLP code kept largely unchanged from your original function:
-    status_map = _extract_status_map_from_lines(lines)
-    status_values = set(status_map.values())
-    logger.debug("Detected status_map: %s", status_map)
-
-    stations = []
-    n = len(lines)
-    i = 0
-
-    logger.debug("Total lines extracted from HTML: %d", n)
-
-    while i < n:
-        line = lines[i]
-
-        # Station code = exactly 3 uppercase letters
-        # BUT avoid treating known status values (like 'NEW') as station codes.
-        if re.fullmatch(r"[A-Z]{3}", line) and line not in status_values:
-            station_code = line
-            logger.debug("Found potential station code at line %d: %s", i, station_code)
-            entry = {"station": station_code}
-
-            window = lines[i + 1: i + 15]
-
-            # ---------- operationProbability (FIXED) ----------
-            prob_val = None
-
-            for w in window:
-                m = re.search(r"(\d{1,3})\s*%", w)
-                if m:
-                    val = int(m.group(1))
-                    if 0 <= val <= 100:
-                        prob_val = val
-                        logger.debug("Found operationProbability=%d for station=%s", prob_val, station_code)
-                        break
-
-            if prob_val is not None:
-                entry["operationProbability"] = prob_val
-
-            # ---------- weatherPhenomenon ----------
-            for w in window:
-                if re.fullmatch(r"[A-Z]{2,6}", w) and w != station_code:
-                    entry["weatherPhenomenon"] = w
-                    logger.debug("Found weatherPhenomenon=%s for station=%s", w, station_code)
-                    break
-
-            # ---------- advisory times (UTC only) ----------
-            time_result = parse_advisory_times(window, mail_received_dt)
-
-            if time_result:
-                start_utc_str, end_utc_str = time_result
-                start_utc_formatted = build_utc_from_dd_mon_hhmm(
-                    re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', start_utc_str),
-                    parse_mail_received_datetime(mail_received_dt)
-                )
-                end_utc_formatted = build_utc_from_dd_mon_hhmm(
-                    re.match(r'(\d{3,4})/(\d{1,2})\s*([A-Za-z]{3})', end_utc_str),
-                    parse_mail_received_datetime(mail_received_dt)
-                )
-                entry["advisoryTimePeriodStartUTC"] = (
-                    start_utc_formatted.strftime("%Y-%m-%dT%H:%M:%S")
-                    if start_utc_formatted else start_utc_str
-                )
-                entry["advisoryTimePeriodEndUTC"] = (
-                    end_utc_formatted.strftime("%Y-%m-%dT%H:%M:%S")
-                    if end_utc_formatted else end_utc_str
-                )
-                logger.debug(
-                    "Station=%s advisory times: start=%s end=%s",
-                    station_code,
-                    entry["advisoryTimePeriodStartUTC"],
-                    entry["advisoryTimePeriodEndUTC"],
-                )
-
-            # ---------- STATUS (new) ----------
-            for relative_index, w in enumerate(window):
-                absolute_index = i + 1 + relative_index
-                if absolute_index in status_map:
-                    entry["status"] = status_map[absolute_index]
-                    logger.debug("Attached status=%s to station=%s (found at line index=%d)",
-                                 entry["status"], station_code, absolute_index)
-                    break
-                m_inline = re.search(r'status\s*[:\-]?\s*([A-Za-z0-9]{1,20})', w, re.I)
-                if m_inline:
-                    entry["status"] = m_inline.group(1).upper()
-                    logger.debug("Attached inline status=%s to station=%s (from window text)",
-                                 entry["status"], station_code)
-                    break
-
-            # Mandatory 5 fields only (unchanged)
-            mandatory = [
-                "station",
-                "weatherPhenomenon",
-                "operationProbability",
-                "advisoryTimePeriodStartUTC",
-                "advisoryTimePeriodEndUTC",
-            ]
-            if all(k in entry for k in mandatory):
-                stations.append(entry)
-                logger.info(
-                    "Completed station entry: %s", entry
-                )
-            else:
-                logger.info(
-                    "Incomplete station entry for '%s', missing fields, ignoring: %s",
-                    station_code,
-                    [k for k in mandatory if k not in entry],
-                )
-
-        i += 1
-
-    logger.info("NLP extraction complete. Total valid stations: %d", len(stations))
-    return stations
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('metstratosphere%40goindigo.in')/messages",
+  "value": [
+    {
+      "@odata.etag": "W/\"CQAAABYAAAAAOvcdV/dBT6UGKiOiQMB/AAAmoi6Z\"",
+      "id": "AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NABGAAAAAADfmr9FIDguQLRzJqpBYww2BwAAOvcdV-dBT6UGKiOiQMB-AAAAAAEMAAAAOvcdV-dBT6UGKiOiQMB-AAAmpTkFAAA=",
+      "createdDateTime": "2025-12-14T22:07:48Z",
+      "lastModifiedDateTime": "2025-12-14T22:07:49Z",
+      "changeKey": "CQAAABYAAAAAOvcdV/dBT6UGKiOiQMB/AAAmoi6Z",
+      "categories": [],
+      "receivedDateTime": "2025-12-14T22:07:48Z",
+      "sentDateTime": "2025-12-14T22:07:47Z",
+      "hasAttachments": false,
+      "internetMessageId": "<BM1PR01MB28986356A7E5AEE79DBE63B0A5ACA@BM1PR01MB2898.INDPRD01.PROD.OUTLOOK.COM>",
+      "subject": "RE:  Met Advisory for OPS SOLVER (Stratosphere)  15/12/2025 @ 0300 IST",
+      "bodyPreview": "Dear Team,\r\n\r\nMet Advisory is as follows:-\r\n\r\nWeather Advisory Domestic Stations\r\nStation\r\nAdvisory Time Period Start (UTC)\r\nAdvisory Time Period Start (LT)\r\nAdvisory Time Period End (UTC)\r\nAdvisory Time Period End (LT)\r\nWeather Phenomenon\r\nOperational ",
+      "importance": "normal",
+      "parentFolderId": "AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NAAuAAAAAADfmr9FIDguQLRzJqpBYww2AQAAOvcdV-dBT6UGKiOiQMB-AAAAAAEMAAA=",
+      "conversationId": "AAQkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NAAQANG2b_MOhO9IsLEUl0Az9U0=",
+      "conversationIndex": "AQHcbUYV0bZv4w6E70iwsRSXQDP1TQ==",
+      "isDeliveryReceiptRequested": false,
+      "isReadReceiptRequested": false,
+      "isRead": false,
+      "isDraft": false,
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NABGAAAAAADfmr9FIDguQLRzJqpBYww2BwAAOvcdV%2FdBT6UGKiOiQMB%2FAAAAAAEMAAAAOvcdV%2FdBT6UGKiOiQMB%2FAAAmpTkFAAA%3D&exvsurl=1&viewmodel=ReadMessageItem",
+      "inferenceClassification": "focused",
+      "body": {
+        "contentType": "html",
+        "content": "<html><head>\r\n<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\"><meta name=\"Generator\" content=\"Microsoft Word 15 (filtered medium)\"><style>\r\n<!--\r\n@font-face\r\n\t{font-family:\"Cambria Math\"}\r\n@font-face\r\n\t{font-family:Aptos}\r\np.MsoNormal, li.MsoNormal, div.MsoNormal\r\n\t{margin:0in;\r\n\tfont-size:12.0pt;\r\n\tfont-family:\"Aptos\",sans-serif}\r\nspan.EmailStyle19\r\n\t{font-family:\"Aptos\",sans-serif;\r\n\tcolor:windowtext}\r\n.MsoChpDefault\r\n\t{font-size:10.0pt}\r\n@page WordSection1\r\n\t{margin:1.0in 1.0in 1.0in 1.0in}\r\ndiv.WordSection1\r\n\t{}\r\n-->\r\n</style></head><body lang=\"EN-US\" link=\"#467886\" vlink=\"#96607D\" style=\"word-wrap:break-word\"><div class=\"WordSection1\"><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\"><i>Dear Team,</i></p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\">Met Advisory is as follows:-</p><p class=\"MsoNormal\">&nbsp;</p><table class=\"MsoNormalTable\" border=\"1\" cellpadding=\"0\" style=\"border:solid windowtext 1.0pt\"><tbody><tr><td colspan=\"7\" style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><a name=\"_Hlk216661920\"><b>Weather Advisory Domestic Stations</b></a><span style=\"\"></span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Station</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Advisory Time Period Start (UTC)</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Advisory Time Period Start (LT)</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Advisory Time Period End (UTC)</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Advisory Time Period End (LT)</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Weather Phenomenon</b></span><span style=\"\"></span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Operational Probability</b></span><span style=\"\"></span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">IXL</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">2330/14 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0500/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0800/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">MOSTLY COVERED PASSES</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">ATQ</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">2330/14 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0500/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1100/15Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">70%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">DEL</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0030/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0600/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0430/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">70%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">LKO</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">2330/14 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0500/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0830/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">70%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">HDO</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1100/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">70%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">VNS</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">2130/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0500/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1030/14 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">KNU</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0630/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1200/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">IXR</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0400/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0930/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr style=\"height:20.75pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">IXA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">0130/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">0700/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">0300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">0830/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:20.75pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr style=\"height:26.6pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">IMF</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">0130/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">0700/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">0300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">0830/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:26.6pt\"><p class=\"MsoNormal\"><span style=\"\">80%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">BLR</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0530/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0830/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">FG</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr><td colspan=\"7\" style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\"><b>Weather Advisory International Stations</b></span><span style=\"\"></span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">SIN</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">0800/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">KUL</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1100/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">1300/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr style=\"height:27.5pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">DMM</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">0800/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">1000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr style=\"height:27.5pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">RUH</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">1800/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">2100/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr style=\"height:27.5pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">BAH</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">1800/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">2000/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr><tr style=\"height:27.5pt\"><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">DOH</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">1200/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">2100/15 Dec</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">NA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">TSRA</span></p></td><span style=\"\"></span><td style=\"border:solid windowtext 1.0pt; padding:.75pt .75pt .75pt .75pt; height:27.5pt\"><p class=\"MsoNormal\"><span style=\"\">60%</span></p></td><span style=\"\"></span></tr></tbody></table><span style=\"\"></span><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\">Operational Severity Matrix:</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\"><b>CAT-III stations to have maximum Probability in 31%-70% block</b>. For CAT-II Stations, it can be above 70% in case weather expected to be non-operatable.</p><p class=\"MsoNormal\">Above Weather Advisory is not for Fog/mist occurrence <b>but for expected Visibility/RVR below respective station minima</b>.</p><p class=\"MsoNormal\"><br>Probability 71%-100% ---- Severity High ( Red)<br>Probability 31%-70% ----- Severity Medium (Amber)<br>Probability 0%-30% ------ Severity Low (Green)</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\">Regards,</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\"><i>Ravinder Vishen</i></p><p class=\"MsoNormal\">Met OCC</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\">&nbsp;</p><p class=\"MsoNormal\"><span style=\"font-size:11.0pt\">&nbsp;</span></p></div></body></html>"
+      },
+      "sender": {
+        "emailAddress": {
+          "name": "Met",
+          "address": "Met@goIndiGo.in"
+        }
+      },
+      "from": {
+        "emailAddress": {
+          "name": "Met",
+          "address": "Met@goIndiGo.in"
+        }
+      },
+      "toRecipients": [
+        {
+          "emailAddress": {
+            "name": "metstratosphere",
+            "address": "metstratosphere@goIndiGo.in"
+          }
+        }
+      ],
+      "ccRecipients": [
+        {
+          "emailAddress": {
+            "name": "Santosh Kumar Prasad (OCC,ISC)",
+            "address": "SANTOSH.PRASAD@goIndiGo.in"
+          }
+        },
+        {
+          "emailAddress": {
+            "name": "Sunil Anto Fernandes (OCC,ISC)",
+            "address": "Sunil.Fernandes@goIndiGo.in"
+          }
+        },
+        {
+          "emailAddress": {
+            "name": "#Met",
+            "address": "#Met@GOINDIGO.IN"
+          }
+        },
+        {
+          "emailAddress": {
+            "name": "Met",
+            "address": "Met@goIndiGo.in"
+          }
+        }
+      ],
+      "bccRecipients": [],
+      "replyTo": [],
+      "flag": {
+        "flagStatus": "notFlagged"
+      }
+    },
+    {
+      "@odata.etag": "W/\"CQAAABYAAAAAOvcdV/dBT6UGKiOiQMB/AAAmoibA\"",
+      "id": "AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NABGAAAAAADfmr9FIDguQLRzJqpBYww2BwAAOvcdV-dBT6UGKiOiQMB-AAAAAAEMAAAAOvcdV-dBT6UGKiOiQMB-AAAmpTkDAAA=",
+      "createdDateTime": "2025-12-14T12:01:12Z",
+      "lastModifiedDateTime": "2025-12-14T12:01:13Z",
+      "changeKey": "CQAAABYAAAAAOvcdV/dBT6UGKiOiQMB/AAAmoibA",
+      "categories": [],
+      "receivedDateTime": "2025-12-14T12:01:12Z",
+      "sentDateTime": "2025-12-14T12:01:10Z",
+      "hasAttachments": false,
+      "internetMessageId": "<BM1PR01MB28985AABE9DA0709835908E2A5ACA@BM1PR01MB2898.INDPRD01.PROD.OUTLOOK.COM>",
+      "subject": "Met Advisory for OPS SOLVER (Stratosphere)  14/12/2025 @ 1730 IST",
+      "bodyPreview": "Dear Team,\r\n\r\nMet Advisory is as follows: -\r\n\r\nWeather Advisory Domestic stations\r\nStation\r\nAdvisory Time Period Start (UTC)\r\nAdvisory Time Period Start (LT)\r\nAdvisory Time Period End (UTC)\r\nAdvisory Time Period End (LT)\r\nWeather Phenomenon\r\nOperational P",
+      "importance": "normal",
+      "parentFolderId": "AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NAAuAAAAAADfmr9FIDguQLRzJqpBYww2AQAAOvcdV-dBT6UGKiOiQMB-AAAAAAEMAAA=",
+      "conversationId": "AAQkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NAAQAC9jqGXB-VRHnbrAEqyDl_M=",
+      "conversationIndex": "AQHcbPFXL2OoZcH9VEedusASrIOX4w==",
+      "isDeliveryReceiptRequested": false,
+      "isReadReceiptRequested": false,
+      "isRead": false,
+      "isDraft": false,
+      "webLink": "https://outlook.office365.com/owa/?ItemID=AAMkADkxY2Q5ODIxLTZjM2EtNDA1NC1hZWNlLTI1ZWQyY2YwMjc0NABGAAAAAADfmr9FIDguQLRzJqpBYww2BwAAOvcdV%2FdBT6UGKiOiQMB%2FAAAAAAEMAAAAOvcdV%2FdBT6UGKiOiQMB%2FAAAmpTkDAAA%3D&exvsurl=1&viewmodel=ReadMessageItem",
+      "inferenceClassification": "focused",
+      "body": {
+        "contentType": "html",
+        "content": 
