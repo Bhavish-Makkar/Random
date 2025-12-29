@@ -19,6 +19,7 @@ from ag_ui.core import (
 )
 import asyncio
 import json
+import re
 import os
 import traceback
 import sys
@@ -31,8 +32,11 @@ from redis_entraid.cred_provider import create_from_service_principal
 load_dotenv()
 import ssl
 import logging
-from variables import weather_schema, toon_payload, msg , build_table_data , build_chart_data
-
+from pymongo import MongoClient, errors
+from variables import weather_schema, toon_payload, msg 
+from mongoDB import insert_weather_chat, insert_weather_summary, get_recent_weather_summary
+# pip install tiktoken
+import tiktoken
 
 app = FastAPI()
  
@@ -47,7 +51,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
  
 # MCP Server configuration - aligned with your test script
-MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://127.0.0.1:8000")
+# MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://127.0.0.1:8000")
+MCP_BASE_URL = os.getenv("MCP_BASE_URL", "https://weather-aops-aqc0hyc8adhdf4c8.centralindia-01.azurewebsites.net")
 MCP_TOKEN_URL = f"{MCP_BASE_URL}/auth/token"
 MCP_SERVER_URL = f"{MCP_BASE_URL}/mcp"
  
@@ -57,13 +62,11 @@ llm = AzureOpenAI(
     api_version=os.getenv("api_version"),
     azure_endpoint=os.getenv("endpoint"),
 )
+
 # ----------------- Redis CONFIG -----------------
-# : In production, keep these in .env, yaha concept test ke liye assume env se aa rahe
-# ...existing code...
-# ----------------- Redis CONFIG -----------------
-REDIS_HOST = "occh-uamr01.centralindia.redis.azure.net"
-REDIS_PORT = 10000
- 
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = os.getenv("REDIS_PORT")
+
 REDIS_CLIENT_ID = os.getenv("REDIS_CLIENT_ID") # = CLIENT_ID
 REDIS_CLIENT_SECRET = os.getenv("REDIS_CLIENT_SECRET") # = CLIENT_SECRET
 REDIS_TENANT_ID = os.getenv("REDIS_TENANT_ID") # = TENANT_ID
@@ -206,7 +209,49 @@ def load_history_messages(user_id: str, session_id: str, max_messages: int = MAX
             continue
     return messages
 
-# ...existing code...
+def trim_history_to_recent(user_id: str, session_id: str, keep_recent: int = 5) -> bool:
+    """
+    Trim Redis history to keep only the N most recent messages.
+    Returns True if trimming was successful, False otherwise.
+    """
+    if not redis_client:
+        logger.debug("trim_history_to_recent: redis_client is not available")
+        return False
+
+    key = make_history_key(user_id, session_id)
+    try:
+        # Get current length
+        length = redis_client.llen(key)
+        # if length <= keep_recent:
+        #     logger.info("History already within limit, no trimming needed")
+        #     return True
+        
+        # Calculate how many to remove from the left
+        to_remove = length - keep_recent
+        
+        # Remove old messages from the left (ltrim keeps elements from start to end)
+        # We want to keep the last keep_recent messages, so start from (length - keep_recent)
+        start_index = to_remove
+        redis_client.ltrim(key, start_index, -1)
+        
+        logger.info(
+            f"Trimmed {to_remove} old messages from Redis for user={user_id}, "
+            f"session={session_id}, kept {keep_recent} recent messages"
+        )
+        return True
+        
+    except Exception as e:
+        logger.warning("trim_history_to_recent failed for key=%s: %s", key, e)
+        return False
+    
+def count_tokens_text(text: str, model: str = "gpt-4o"):
+                # Choose an encoding. If model isn't supported directly, fallback to cl100k_base.
+                try:
+                    enc = tiktoken.encoding_for_model(model)
+                except KeyError:
+                    enc = tiktoken.get_encoding("cl100k_base")
+                return len(enc.encode(text))
+
 encoder = EventEncoder()
 
  
@@ -279,10 +324,27 @@ async def test_mcp_connection():
         print(f"❌ MCP connection test failed: {e}")
         return False
  
+async def summary_chat(messages: str):
+
+    prompt_summary = "Summarize the previous conversation in concise manner focusing on weather related information only. The summary should be brief and capture key points discussed."
+    messages.append({
+        "role": "system",
+        "content": prompt_summary
+    })
+
+    re = llm.chat.completions.create(
+        model=os.getenv("deployment"),
+        messages=messages,
+        stream=False,
+    )
+    return re.choices[0].message.content
+
 async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
     """Main orchestration generator that yields AG-UI events for streaming."""
     # session_id=DUMMY_SESSION_ID
     client = None
+    actual_tool_queries ={}
+    graphs = None
     try:
         # Create authenticated MCP client
         client = await create_mcp_client()
@@ -305,10 +367,6 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
             # Discover tools from MCP server
             print(f"🔍 Discovering available tools from MCP server...")
            
-            # Read schema resource
-            # schema = await client.read_resource("resource://metar_json_schema")
- 
-           
             tool_descriptions = await client.list_tools()
             print(f"📋 Found {len(tool_descriptions)} tools: {[t.name for t in tool_descriptions]}")
            
@@ -327,26 +385,34 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
             toon = toon_payload
             schema = weather_schema          
             schema_toon = encode(schema)
- 
+            recent_summary = await get_recent_weather_summary(session_id, user_id)
             sys_msg =msg
  
             messages = [
                 {"role": "system", "content": sys_msg},
                 {"role": "system", "content": "key Value pairs of airport:\n" + toon},
                 {"role": "system", "content": "Schema (JSON):\n" + schema_toon},
-                # {"role": "user", "content": "The User prompt is as follows:\n"+user_prompt},
             ]
  
            
             # 2) Conversation history from Redis (per user + session)
             history_messages = load_history_messages(user_id, session_id)
-            print("1.5")
+            
             if history_messages:
                 print(
                     f"🧠 Loaded {len(history_messages)} history messages "
                     f"from Redis for user={user_id}, session={session_id}"
                 )
             messages.extend(history_messages)
+
+            if recent_summary:
+                messages.append(
+                    {
+                        "role": "system",
+                        "content": "The summary of older messages:\n" + recent_summary["summary"] if recent_summary else "",
+                    }
+                )
+
             # 3) Current user prompt
             messages.append(
                 {
@@ -354,20 +420,77 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
                     "content": "The User prompt is as follows:\n" + user_prompt,
                 }
             )
-            print(messages)
+
+            
+
+
+
+
+            
+
+            print("Token calculated : ", count_tokens_text(str(messages)))
+
+            if count_tokens_text(str(messages)) > 128000:
+                print("⚠️ Token limit exceeded, trimming history...")
+                
+                summary_response = await summary_chat(messages)
+
+                await insert_weather_summary(session_id, user_id, summary_response)
+
+                # Trim Redis history to keep only 5 recent messages
+                trimmed = trim_history_to_recent(user_id, session_id, keep_recent=5)
+                if trimmed:
+                   
+                    # Reload messages after trimming
+                    history_messages = load_history_messages(user_id, session_id)
+                    
+                    # Rebuild messages list with trimmed history
+                    messages = [
+                        {"role": "system", "content": sys_msg},
+                        {"role": "system", "content": "key Value pairs of airport:\n" + toon},
+                        {"role": "system", "content": "Schema (JSON):\n" + schema_toon},
+                    ]
+                    messages.extend(history_messages)
+
+                    if recent_summary:
+                        messages.append(
+                            {
+                                "role": "system",
+                                "content": "The summary of older messages:\n" + recent_summary["summary"] if recent_summary else "",
+                            }
+                        )
+                        
+                    messages.append({
+                        "role": "user",
+                        "content": "The User prompt is as follows:\n" + user_prompt,
+                    })
+                    
+                    print(f"🔄 Recalculated tokens after trimming: {count_tokens_text(str(messages))}")
+                else:
+                    print("❌ Failed to trim Redis history, continuing with current messages")
+
+                
+
+            # ------------------------------------------------------------------
+            # print(messages)
             
             while True:
                 print(f"🤖 Sending request to Azure OpenAI...")
-                response = llm.chat.completions.create(
-                    model=os.getenv("deployment"),
-                    messages=messages,
-                    tool_choice="auto",
-                    tools=openai_tools if openai_tools else None,
-                    stream=False,
-                )
+                try:
+                    response = llm.chat.completions.create(
+                        model=os.getenv("deployment"),
+                        messages=messages,
+                        tool_choice="auto",
+                        tools=openai_tools if openai_tools else None,
+                        stream=False,
+                    )
+
+                except Exception as llm_err:
+                        print(f"⚠️ Failed to get a response from LLM: {llm_err}")
+
  
-                print(response.usage)
- 
+                # print(response)
+            
                 message = response.choices[0].message
                 finish_reason = response.choices[0].finish_reason
  
@@ -395,6 +518,9 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
                         tool_name = tool_call.function.name
                         tool_args = json.loads(tool_call.function.arguments)
  
+                        # Capture the actual tool call for MongoDB logging
+                        actual_tool_queries[tool_name] = tool_args if tool_args else None
+
                         print(f"  ⚙️  Calling tool: {tool_name} with args: {tool_args}")
  
                         yield encoder.encode(
@@ -445,12 +571,25 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
                                 role="tool",
                             )
                         )
- 
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": result_content,
-                        })
+                        
+                        if tool_name == "table_and_graph_JSON_generater":
+                            cleaned = re.sub(r'^```json|```$', '', result_content, flags=re.MULTILINE)
+                            result_tg = json.loads(cleaned)
+                            result_tg = json.dumps(result_tg)
+                            # print(result_data)
+                            graphs = "data: " + result_tg + "\n\n"
+                            # print(graphs)
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": "json generated",
+                            })
+                        else:
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": result_content,
+                            })
  
                     continue
  
@@ -490,21 +629,8 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
                         except Exception as redis_err:
                             print(f"⚠️ Failed to write chat history to Redis: {redis_err}")
                    
-                    table = build_table_data()
-                    chart = build_chart_data()
- 
-                    final_event = {
-                        "type": "RUN_FINISHED",
-                        "table": table,
-                        "chart": {
-                            "data": chart["data"],
-                            "xKey": chart["xKey"],
-                            "yKey": chart["yKey"],
-                            "chartType": chart["chartType"],
-                        },
-                    }
-                    # print(final_event)
-                    yield "data: " + json.dumps(final_event) + "\n\n"
+                    if graphs is not None:
+                        yield graphs
  
                    
                     yield encoder.encode(
@@ -523,6 +649,19 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
                     )
                    
                     print("✅ Conversation complete!")
+                    
+                    try:
+                        await insert_weather_chat(
+                            uid=user_id,
+                            session_id=session_id,
+                            user_chat=user_prompt,
+                            final_response=content,
+                            tool_queries=actual_tool_queries if actual_tool_queries else {"no_tools": None}
+                        )
+                
+                    except errors.PyMongoError as e:
+                        print("❌ MongoDB Error:", e)
+
                     break
  
     except Exception as e:
@@ -531,7 +670,7 @@ async def interact_with_server(user_prompt: str, session_id: str, user_id: str):
         yield encoder.encode(
             RunErrorEvent(
                 type=EventType.RUN_ERROR,
-                message=str(e)
+                message="Occurred during processing:" 
             )
         )
     finally:
@@ -638,7 +777,9 @@ async def test_mcp_endpoint():
             "error": str(e),
             "token_obtained": token is not None if 'token' in locals() else False
         }
-
+    
+    
+# testing delete session endpoint 24hrs
 @app.delete("/session")
 async def delete_session(userId: str = Query("anonymous"), sessionId: str = Query(DUMMY_SESSION_ID)):
     """
@@ -682,3 +823,6 @@ if __name__ == "__main__":
         log_level="info",
         access_log=True,
     )
+
+
+    # chceck redis connection
