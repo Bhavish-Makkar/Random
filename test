@@ -1,278 +1,78 @@
-(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo> python test1.py
-
-============================================================
-
-🌤️  WEATHER ADVISORY EMAIL PROCESSOR – ROBUST VERSION
-
-============================================================
-
-🔍 Robust detection of: station, weatherPhenomenon, operationProbability, advisoryTimePeriodStartUTC, advisoryTimePeriodEndUTC
-
-🚫 No artificial defaults – only values present in mail are used
- 
-Fetching page 1...
-
-Retrieved 16 messages from page 1
-
-Total messages retrieved: 16
- 
-Processing email 1/16: Mail Test 6...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ✅ Extracted 1 station(s) – Saved to 001_2025_11_22_Mail Test 6.json
- 
-Processing email 2/16: Mail Test 5...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ✅ Extracted 1 station(s) – Saved to 002_2025_11_22_Mail Test 5.json
- 
-Processing email 3/16: Mail Test 4...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ✅ Extracted 1 station(s) – Saved to 003_2025_11_22_Mail Test 4.json
- 
-Processing email 4/16: Test Mail 3...
-
-   ❌ Missing mandatory field(s) in mail body: advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.
- 
-Processing email 5/16: Test Mail 1...
-
-   ❌ Missing mandatory field(s) in mail body: advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.
- 
-Processing email 6/16: TEST  Mail ...
-
-   ❌ Missing mandatory field(s) in mail body: advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC – Skipping this email.
- 
-Processing email 7/16: Met Advisory TEST samples...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 8/16: FW: Met Advisory TEST samples...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 9/16: FW: Met Advisory for OPS SOLVER (Stratosphere) 21/11/2025 @ 15:30 IST (Trial Mai...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 10/16: Met Advisory for OPS SOLVER (Stratosphere) 21/11/2025 @ 15:30 IST (Trial MaiL wi...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 11/16: Met Advisory TEST samples...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 12/16: Met Advisory for OPS SOLVER (Stratosphere)  14/11/2025 @ 1715 IST (Trial Mai wit...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 13/16: Met Advisory for OPS SOLVER (Stratosphere)  14/11/2025 @ 15:30 IST (Trial Mai wi...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 14/16: FW: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail onl...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
-
-📧 Total emails processed: 16
-
-✅ Successful extractions: 3
-
-⏭️  Skipped emails: 13
-
-📁 Files saved in: email_extracts/
-
-(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo>
- 
- 
- 
- 
- 
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
-
-📧 Total emails processed: 16
-
-✅ Successful extractions: 3
-
-⏭️  Skipped emails: 13
-
-📁 Files saved in: email_extracts/
-
-(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo>
- 
- 
- 
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
-
-📧 Total emails processed: 16
-
-✅ Successful extractions: 3
-
-⏭️  Skipped emails: 13
-
-📁 Files saved in: email_extracts/
-
-(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo>
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
-
-📧 Total emails processed: 16
-
-✅ Successful extractions: 3
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
- 
- 
-Processing email 15/16: Mail to Boeing for Expected Poor Visibility in Fog/Mist/Haze (Trial Mail only an...
-
-   ✅ All 5 mandatory field labels found in body – trying to extract tables...
-
-   ❌ No valid station rows with all 5 fields – Skipping this email.
- 
-Processing email 16/16: FW: FW: Hi...
-
-   ❌ Missing mandatory field(s) in mail body: weatherPhenomenon, station, advisoryTimePeriodEndUTC, advisoryTimePeriodStartUTC, operationProbability – Skipping this email.       
- 
-============================================================
-
-🎯 EMAIL PROCESSING SUMMARY
-
-============================================================
-
-📧 Total emails processed: 16
-
-✅ Successful extractions: 3
-
-⏭️  Skipped emails: 13
-
-📁 Files saved in: email_extracts/
-
-(env_bruno) PS C:\Users\Priyanshu.x.Sharma1\Downloads\brunooo>
- 
- 
- 
+flowchart TB
+
+A[CREW LOGISTICS]
+A --> B[HOTEL]
+A --> RF[REIMBURSEMENT / FEEDBACK]
+
+%% HOTEL MENU
+B --> QC[QUERY / CONCERN]
+B --> PP[POLICY & PROCEDURES]
+B --> RF
+
+%% QUERY / CONCERN BRANCHES
+QC --> HCN[Hotel Cab Not Received]
+QC --> IHN[Issue / Need Assistance in Hotel]
+QC --> HCI[Hotel Cab Clubbing Issue]
+QC --> HSE[Hotel Stay Extension]
+QC --> DUH[Day Use Hotel]
+QC --> RELO[Relocation]
+
+%% HOTEL CAB NOT RECEIVED
+HCN --> AH[Airport to Hotel]
+HCN --> HA[Hotel to Airport / Training]
+
+AH --> AHQ["Asked: Contacted hotel?"]
+AHQ --> AHY[YES → Crew types outcome → Transfer to Agent]
+AHQ --> AHN[NO → Advise to call hotel → Transfer to Agent]
+
+HA --> HAA[If Airport → Transfer to Agent]
+HA --> HAT[If Training → Create Ticket]
+HAT --> HAT2["Reporting <2 hrs? → Transfer to Agent"]
+
+%% ISSUE / NEED ASSISTANCE
+IHN --> I1[Hygiene / Service / Noise]
+IHN --> I2[Waiting for Room]
+IHN --> I3[Twin / King Bed Issue]
+IHN --> I4[Laundry Issue]
+IHN --> I5[Hotel Staff Behaviour]
+IHN --> I6[Meals Concern]
+IHN --> I7[Incident / Safety Concern]
+IHN --> I8[Any Other → Crew Types]
+
+I1 --> TA1[Transfer to Agent]
+I2 --> TA1
+I3 --> TA1
+I4 --> TA1
+I5 --> TA1
+I6 --> TA1
+I7 --> TA1
+I8 --> TA1
+
+%% HOTEL CAB CLUBBING
+HCI --> TCB[Transfer to Agent]
+
+%% STAY EXTENSION
+HSE --> SE1[Request Acknowledged]
+HSE --> SE2["Cabin Relocation? → Needs IFS Approval"]
+SE2 --> SE3[Email crew.logistics@goindigo.in]
+HSE --> SE4[Create Ticket]
+
+%% DAY USE HOTEL
+DUH --> DH1[Check Halt Duration]
+DH1 --> DH2[Halt < 4 hrs]
+DH1 --> DH3[Halt ≥ 4 hrs]
+
+DH2 --> DH2A[No Hotel Found → Not Authorized]
+DH2 --> DH2B[Hotel Found → Show Options]
+
+DH3 --> DH3A[Operating Crew → Hotel Info in Crew App]
+DH3 --> DH3B[Training Cockpit → Hotel Info in Crew App]
+DH3 --> DH3C[Training Cabin → Day Use Not Authorized]
+
+%% RELOCATION
+RELO --> R1[Needs IFS Base Head Approval]
+
+%% REIMBURSEMENT / FEEDBACK
+RF --> RFM[Reimbursement → Create Ticket → Transfer]
+RF --> FB1[Cockpit → URL Form → Close]
+RF --> FB2[Cabin → Create Ticket → Close]
