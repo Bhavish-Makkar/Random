@@ -1,0 +1,142 @@
+from openai import AzureOpenAI
+import os, time, json, textwrap
+from dotenv import load_dotenv
+
+load_dotenv()
+
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+)
+
+DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+CACHE_KEY = os.getenv("PROMPT_CACHE_KEY", "demo-prefix-v1")
+
+# ---- Long, stable prefix (intentionally very long to exceed 1,024 tokens) ----
+BASE_PREFIX = textwrap.dedent("""
+You are an enterprise AI assistant focused on Azure OpenAI, Prompt Caching, MCP tools, and system design.
+Follow these principles: precision, observability, cost-awareness, resilience, and structured answers.
+This block is long on purpose so that the first 1,024 tokens are identical across calls.
+
+Glossary:
+- Prompt Caching: Reuse of processed input token computations for identical prefix to reduce cost/latency.
+- Cache Hit: When the provider reuses the preprocessed prefix instead of recomputing it.
+- Cache Miss: First use, or any difference in the first 1,024 tokens (even whitespace) that breaks identity.
+- Routing: Requests are routed using a hash of the initial prefix (typically first ~256 tokens).
+- prompt_cache_key: A developer-provided key combined with the prefix hash to improve cache hit rates.
+
+RAG patterns:
+- Chunk size 300-500, overlap 40-60; hybrid search; freshness; guardrails.
+- Observability: structured logs, redaction, metrics, traces, token usage.
+
+""").strip()
+
+# repeat content to reliably push over 1,024 tokens (safe overkill)
+REPEAT_BLOCK = ("• Principles: correctness, consistency, observability, resilience, cost-awareness. "
+                "• Patterns: function-calling, retries with backoff, semantic dedupe, partial caching. "
+                "• RAG tuning: chunk size 300–500, overlap 40–60, hybrid scoring, recency bias toggles. ")
+
+LONG_CACHEABLE_PREFIX = BASE_PREFIX + "\n\n" + (REPEAT_BLOCK * 200)  # adjust multiplier if needed
+
+SYSTEM_MESSAGE = {
+    "role": "system",
+    "content": [
+        {
+            "type": "text",
+            "text": LONG_CACHEABLE_PREFIX
+            # Note: Azure/OpenAI prompt caching is automatic for qualifying prompts;
+            # cache_control hints are not required here.
+        }
+    ]
+}
+
+# ...existing code...
+def run_call(tag, messages, cache_key=None):
+    t0 = time.time()
+    resp = client.chat.completions.create(
+        model=DEPLOYMENT,
+        messages=messages,
+        # temperature=0.2,
+        prompt_cache_key=cache_key  # improves routing consistency for shared prefixes
+    )
+    dt = time.time() - t0
+
+    # robust access for pydantic models or dicts
+    usage = getattr(resp, "usage", None) or {}
+    def _get(obj, key):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get(key)
+        # pydantic v2 model -> dict, or attribute access
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump().get(key)
+        return getattr(obj, key, None)
+
+    ptd = _get(usage, "prompt_tokens_details") or {}
+    cached = _get(ptd, "cached_tokens") if ptd else None
+    prompt_tokens = _get(usage, "prompt_tokens")
+    total_tokens = _get(usage, "total_tokens")
+
+    print(f"\n=== {tag} ===")
+    print(f"Latency: {dt*1000:.0f} ms")
+    print(f"cached_tokens: {cached}")
+    print(f"prompt_tokens: {prompt_tokens}")
+    print(f"total_tokens: {total_tokens}")
+    return resp, dt, cached, prompt_tokens
+# ...existing code...
+
+# ---- Call #1: Expected MISS (cache warm-up) ----
+messages1 = [
+    SYSTEM_MESSAGE,
+    {"role": "user", "content": "In 3 bullets, explain what prompt caching is and when it helps."}
+]
+r1, t1, c1, p1 = run_call("Call #1 (expected MISS)", messages1, cache_key=CACHE_KEY)
+
+# ---- Call #2: Expected HIT (identical prefix + same cache key) ----
+messages2 = [
+    SYSTEM_MESSAGE,  # exact same object
+    {"role": "user", "content": "List business benefits of prompt caching in bullets."}
+]
+r2, t2, c2, p2 = run_call("Call #2 (expected HIT)", messages2, cache_key=CACHE_KEY)
+
+# ---- Report differences ----
+def pct(delta, base):
+    return (100.0 * delta / base) if base else 0.0
+
+print("\n=== Comparison ===")
+if c2 and c2 > 0:
+    print(f"Cache HIT confirmed: cached_tokens on call #2 = {c2}")
+else:
+    print("No cache hit recorded on call #2 (cached_tokens=0 or missing).")
+
+if p1 and p2:
+    print(f"Prompt tokens delta: {p1} -> {p2} ({pct(p1-p2, p1):.1f}% reduction)")
+print(f"Latency delta: {t1*1000:.0f} ms -> {t2*1000:.0f} ms ({pct(t1 - t2, t1):.1f}% faster)")
+
+# ---- Call #3: Forced MISS by changing a single character in the first 1,024 tokens ----
+SYSTEM_MESSAGE_TWEAKED = {
+    "role": "system",
+    "content": [
+        {
+            "type": "text",
+            "text": LONG_CACHEABLE_PREFIX + " "  # a single trailing space breaks identity
+        }
+    ]
+}
+messages3 = [
+    SYSTEM_MESSAGE_TWEAKED,
+    {"role": "user", "content": "Re-iterate the business benefits briefly."}
+]
+r3, t3, c3, p3 = run_call("Call #3 (forced MISS via 1-char change)", messages3, cache_key=CACHE_KEY)
+
+# ---- Optional: MISS via different cache key (routing change) ----
+DIFFERENT_KEY = CACHE_KEY + "-v2"
+messages4 = [
+    SYSTEM_MESSAGE,
+    {"role": "user", "content": "One-liner definition of prompt caching."}
+]
+r4, t4, c4, p4 = run_call("Call #4 (MISS via different prompt_cache_key)", messages4, cache_key=DIFFERENT_KEY)
+
+print("\nDemo complete.")
