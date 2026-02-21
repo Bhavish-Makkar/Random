@@ -6,14 +6,38 @@ import json
 from dotenv import load_dotenv
 import os, time, httpx
 from fastmcp import FastMCP, Context
+from fastmcp.server.dependencies import get_access_token, AccessToken, get_context
 from fastmcp.server.auth.providers.jwt import JWTVerifier
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 from toon import encode
 from openai import AzureOpenAI
 
+from fastmcp.server.auth import TokenVerifier, AccessToken as AuthAccessToken
+import base64, json, time
+
+from functools import wraps
+from inspect import signature
+import logging
+import sys
+
+from fastmcp.server.middleware.rate_limiting import (
+    SlidingWindowRateLimitingMiddleware
+)
+
+
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure logging to display only in terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+logger = logging.getLogger(__name__)
 
 # MongoDB configuration
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -25,20 +49,161 @@ TENANT_ID = os.getenv("TENANT_ID")
 APP_ID = os.getenv("APP_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 PORT = int(os.getenv("PORT"))
+SERVER_CLIENT_ID = os.getenv("SERVER_CLIENT_ID")
 
 # OpenID metadata
 JWKS_URI = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
-ISSUER = f"https://login.microsoftonline.com/{TENANT_ID}/v2.0"
-AUDIENCE = APP_ID
+ISSUER = f"https://sts.windows.net/{TENANT_ID}/"
+AUDIENCE = f"api://{SERVER_CLIENT_ID}"
+
+
 
 # ------------------- MCP with JWT verification ----------------------
+# class ExpiryIssuerAudienceVerifier(TokenVerifier):
+#     def __init__(
+#         self,
+#         *,
+#         issuer: str | None = None,
+#         audience: str | list[str] | None = None,
+#         required_scopes: list[str] | None = None,
+#         base_url: str | None = None,
+#         clock_skew_seconds: int = 60,
+#     ):
+#         super().__init__(required_scopes=required_scopes, base_url=base_url)
+#         self.issuer = issuer
+#         self.audience = audience
+#         self.clock_skew_seconds = clock_skew_seconds
+
+#     def _extract_scopes(self, claims: dict[str, Any]) -> list[str]:
+#         for claim in ["scope", "scp"]:
+#             if claim in claims:
+#                 if isinstance(claims[claim], str):
+#                     return claims[claim].split()
+#                 elif isinstance(claims[claim], list):
+#                     return claims[claim]
+#         return []
+
+#     async def verify_token(self, token: str) -> AuthAccessToken | None:
+#         try:
+#             parts = token.split(".")
+#             if len(parts) != 3:
+#                 return None
+#             payload_b64 = parts[1]
+#             payload_b64 += "=" * ((-len(payload_b64)) % 4)  # base64url padding
+#             claims = json.loads(
+#                 base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+#             )
+
+#             # Expiration check only
+#             exp = claims.get("exp")
+#             now = int(time.time())
+#             if exp is None or now > int(exp) + self.clock_skew_seconds:
+#                 return None
+
+#             # Issuer check
+#             if self.issuer and claims.get("iss") != self.issuer:
+#                 return None
+
+#             # Audience check
+#             if self.audience is not None:
+#                 aud = claims.get("aud")
+#                 audience_valid = False
+#                 if isinstance(self.audience, list):
+#                     if isinstance(aud, list):
+#                         audience_valid = any(expected in aud for expected in self.audience)
+#                     else:
+#                         audience_valid = aud in self.audience
+#                 else:
+#                     if isinstance(aud, list):
+#                         audience_valid = self.audience in aud
+#                     else:
+#                         audience_valid = aud == self.audience
+#                 if not audience_valid:
+#                     return None
+
+#             client_id = claims.get("client_id") or claims.get("azp") or claims.get("sub") or "unknown"
+#             scopes = self._extract_scopes(claims)
+
+#             return AuthAccessToken(
+#                 token=token,
+#                 client_id=str(client_id),
+#                 scopes=scopes,
+#                 expires_at=int(exp),
+#                 claims=claims,
+#             )
+#         except Exception:
+#             return None
+
+# Use local expiry + iss/aud checks only (no JWKS/issuer calls)
+# auth = ExpiryIssuerAudienceVerifier(issuer=ISSUER, audience=AUDIENCE)
+
 auth = JWTVerifier(
     jwks_uri=JWKS_URI,
     issuer=ISSUER,
     audience=AUDIENCE,
 )
 
+# ----- rate limiting middleware ------
+ 
+
+
+def get_client_id_from_context(context: MiddlewareContext) -> str:
+    """Extract OID from the access token for rate limiting."""
+    try:
+        token: AccessToken | None = get_access_token()
+        if token and token.claims:
+            return token.claims.get("oid", "anonymous")
+        return "global"
+    except Exception:
+        return "global"
+    
+
+rate_limiter = SlidingWindowRateLimitingMiddleware(
+    max_requests=10,           # Allow 10 requests
+    window_minutes=1,           # Per minute
+    get_client_id=get_client_id_from_context  # Use OID as client ID
+)
+
+#------------------------- tool filtering middleware -------------------------
+
+class ListingFilterMiddleware(Middleware):
+    async def on_list_tools(self, context: MiddlewareContext, call_next):
+        result = await call_next(context)
+        
+        try:
+            token: AccessToken | None = get_access_token()
+            if not token:
+                return []  
+                
+            user_roles = token.claims.get('roles', [])
+            
+            has_read = "WeatherDataRead" in user_roles
+            has_write = "WeatherDataWrite" in user_roles
+            
+            # No weather roles = no tools
+            if not has_read and not has_write:
+                return []
+            
+            # Filter tools based on permissions
+            filtered_tools = []
+            for tool in result:
+                tool_tags = tool.tags or []
+                
+                # Allow tool if user has required permissions
+                if "WeatherDataRead" in tool_tags and has_read:
+                    filtered_tools.append(tool)
+                elif "WeatherDataWrite" in tool_tags and has_write:
+                    filtered_tools.append(tool)
+            
+            return filtered_tools
+            
+        except Exception as e:
+            logger.error(f"Error in tool filtering: {e}", exc_info=True)
+            return []  # On error, return no tools (fail-safe)
+
 mcp = FastMCP(name="metar-weather", auth=auth)
+mcp.add_middleware(rate_limiter)
+mcp.add_middleware(ListingFilterMiddleware())
 
 # Global MongoDB client
 client = None
@@ -135,8 +300,9 @@ def format_metar_data(metar_doc: Dict) -> str:
         result += f"\n📊 TAF: {raw_taf}\n"
     
     return result
+
 # ------------------- Tools (protected by JWTVerifier) ---------------
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataRead"])
 async def search_metar_data(
     station_icao: str = None,
     station_iata: str = None,
@@ -242,7 +408,7 @@ async def search_metar_data(
         limit = min(limit, 50)
         
         # Execute the query
-        print(f"🔍 Executing MongoDB query: {query}")
+        logger.info(f"Executing MongoDB query: {query}")
         cursor = db[COLLECTION_METAR].find(query).sort("timestamp", -1).limit(limit)
         results = await cursor.to_list(length=limit)
         
@@ -280,10 +446,10 @@ async def search_metar_data(
         return result
         
     except Exception as e:
-        print(f"❌ Error in search_metar_data: {e}")
+        logger.error(f"Error in search_metar_data: {e}", exc_info=True)
         return f"Error executing search: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataRead"])
 async def list_available_stations() -> str:
     """List all available weather stations with their codes."""
     try:
@@ -327,10 +493,10 @@ async def list_available_stations() -> str:
         return result
         
     except Exception as e:
-        print(f"❌ Error in list_available_stations: {e}")
+        logger.error(f"Error in list_available_stations: {e}", exc_info=True)
         return f"Error retrieving station list: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataRead"])
 async def get_metar_statistics() -> str:
     """Get statistics about the METAR database."""
     try:
@@ -374,10 +540,10 @@ async def get_metar_statistics() -> str:
         return result
         
     except Exception as e:
-        print(f"❌ Error in get_metar_statistics: {e}")
+        logger.error(f"Error in get_metar_statistics: {e}", exc_info=True)
         return f"Error retrieving statistics: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataRead"])
 async def raw_mongodb_query_find(query_json: str, limit: int = 10) -> str:
     """Execute a raw MongoDB query for find queries against the METAR database."""
     try:
@@ -392,7 +558,7 @@ async def raw_mongodb_query_find(query_json: str, limit: int = 10) -> str:
         # Limit the number of results
         limit = min(limit, 50)
         
-        print(f"🔍 Executing raw MongoDB query: {query}")
+        logger.info(f"Executing raw MongoDB query: {query}")
         # cursor = db[COLLECTION_METAR].aggregate(query)
         cursor = db[COLLECTION_METAR].find(query).sort("metar.updatedTime", -1).limit(limit)
 
@@ -400,11 +566,7 @@ async def raw_mongodb_query_find(query_json: str, limit: int = 10) -> str:
         
         if not results:
             return f"No documents found matching query: {query_json}"
-        
-        # Format results
-        print(results)
-
-        
+                
         result = f"🔍 Raw MongoDB Query Results ({len(results)} documents found):\n"
         result += f"Query: {query_json}\n"
         result += "=" * 60 + "\n\n"
@@ -417,10 +579,10 @@ async def raw_mongodb_query_find(query_json: str, limit: int = 10) -> str:
         return result
         
     except Exception as e:
-        print(f"❌ Error in raw_mongodb_query: {e}")
+        logger.error(f"Error in raw_mongodb_query_find: {e}", exc_info=True)
         return f"Error executing query: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataRead"])
 async def raw_mongodb_query_aggregate(query_json: str, limit: int = 10) -> str:
     """Execute a raw MongoDB aggregate query against the METAR database."""
     try:
@@ -435,7 +597,7 @@ async def raw_mongodb_query_aggregate(query_json: str, limit: int = 10) -> str:
         # Limit the number of results
         limit = min(limit, 50)
         
-        print(f"🔍 Executing raw MongoDB query: {query}")
+        logger.info(f"Executing raw MongoDB query: {query}")
         cursor = db[COLLECTION_METAR].aggregate(query)
         # cursor = db[COLLECTION_METAR].find(query).sort("metar.updatedTime", -1).limit(limit)
 
@@ -445,7 +607,7 @@ async def raw_mongodb_query_aggregate(query_json: str, limit: int = 10) -> str:
             return f"No documents found matching query: {query_json}"
         
         # Format results
-        print(results)
+        logger.debug(f"Aggregate query results: {results}")
 
         toon_result = encode(results)
         # result = f"🔍 Raw MongoDB Query Results ({len(results)} documents found):\n"
@@ -460,10 +622,10 @@ async def raw_mongodb_query_aggregate(query_json: str, limit: int = 10) -> str:
         return toon_result
         
     except Exception as e:
-        print(f"❌ Error in raw_mongodb_query: {e}")
+        logger.error(f"Error in raw_mongodb_query_aggregate: {e}", exc_info=True)
         return f"Error executing query: {str(e)}"
 
-@mcp.tool()
+@mcp.tool(tags=["WeatherDataWrite"])
 async def table_and_graph_JSON_generater(response_data:str) -> str:
     """Generate JSON for table and graph visualization of METAR data. from the data provided by LLM.
     
@@ -482,13 +644,75 @@ async def table_and_graph_JSON_generater(response_data:str) -> str:
                     messages=messages,
                 )
     result = response.choices[0].message.content
-    print(f"🧮 Generated Table and Graph JSON:\n{result}")
+    logger.info(f"Generated Table and Graph JSON: {result}")
     return result
 
-@mcp.tool()
+
+# @mcp.tool(tags=["WeatherDataWrite"])
+# async def add_metar_data(metar_raw: str, email: str = "system@occhub.com") -> str:
+#     """Add new METAR data to the external weather service.
+    
+#     Args:
+#         metar_raw: Raw METAR string (e.g., "VEPT 021330Z 08009KT 4500 HZ SCT018 BKN100 30/26 Q1001 NOSIG")
+#         email: Email address for the request (optional, defaults to system email)
+#     """
+#     try:
+#         # External API endpoint
+#         url = "https://occhub-metar-ms-6eocchub-dev.apps.ocpnonprodcl01.goindigo.in/api/weather/add"
+        
+#         # Get authentication token
+#         access_token: AccessToken | None = get_access_token()
+#         if not access_token:
+#             return f"❌ No authentication token available"
+            
+#         # Extract the actual token string
+#         bearer_token = access_token.token
+        
+#         # Prepare headers
+#         headers = {
+#             "Authorization": f"Bearer {bearer_token}",
+#             "Content-Type": "application/json"
+#         }
+        
+#         # Prepare payload with correct field names
+#         payload = {
+#             "raw_data": metar_raw,
+#             "email": email
+#         }
+        
+#         logger.info(f"Sending METAR data to external API: {metar_raw}")
+#         logger.info(f"Using email: {email}")
+#         logger.debug(f"Payload: {payload}")
+        
+#         # Make the HTTP request using httpx (async)
+#         async with httpx.AsyncClient() as client:
+#             resp = await client.post(url, headers=headers, json=payload, timeout=30)
+            
+#             logger.info(f"Response status code: {resp.status_code}")
+#             logger.debug(f"Response body: {resp.text}")
+            
+#             if resp.status_code in [200, 201]:
+#                 return f"✅ Successfully added METAR data for {metar_raw[:4]}. Status: {resp.status_code}, Response: {resp.text}"
+#             elif resp.status_code == 422:
+#                 return f"❌ Validation error: {resp.text}. Please check the METAR format and email address."
+#             else:
+#                 return f"❌ Failed to add METAR data. Status: {resp.status_code}, Response: {resp.text}"
+            
+#     except httpx.TimeoutException:
+#         return f"⏰ Request timeout when adding METAR data: {metar_raw[:4]}"
+#     except httpx.RequestError as e:
+#         return f"🌐 Network error when adding METAR data: {str(e)}"
+#     except Exception as e:
+#         logger.error(f"Error in add_metar_data: {e}", exc_info=True)
+#         return f"💥 Unexpected error when adding METAR data: {str(e)}"
+
+
+@mcp.tool(tags=["WeatherDataWrite"])
 async def ping() -> str:
     """Simple ping tool for testing authentication."""
     return "🏓 Pong! Authentication working correctly."
+
+
 
 # ------------------- Custom routes (public) -------------------------
 @mcp.custom_route("/health", methods=["GET"])
@@ -499,8 +723,6 @@ async def health_check_route(request: Request):
         "timestamp": datetime.now().isoformat(),
         "server": "metar-weather-mcp",
         "azure_config": {
-            "tenant_id": TENANT_ID,
-            "app_id": APP_ID,
             "auth_enabled": True
         }
     })
@@ -513,71 +735,25 @@ async def root(request: Request):
         "endpoints": {
             "mcp": "/mcp",
             "health": "/health",
-            "auth_token": "/auth/token"
+            "auth_info": "/auth/token"
         },
         "description": "Weather API service for operational control hub",
-        "authentication": "Azure AD JWT required for MCP endpoints"
-    })
-
-@mcp.custom_route("/auth/token", methods=["POST"])
-async def issue_token(request: Request):
-    """
-    Client POST (no body needed).
-    Serevr returns app-only token from Azure AD.
-    """
-    print(f"🔐 Token request received from client")
-    
-    token_url = f"https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token"
-    form = {
-        "client_id": APP_ID,
-        "client_secret": CLIENT_SECRET,
-        "grant_type": "client_credentials",
-        "scope": f"api://{APP_ID}/.default",
-    }
-    
-    print(f"🔄 Requesting token from Azure AD: {token_url}")
-    print(f"📋 Form data: client_id={APP_ID}, scope=api://{APP_ID}/.default")
-    
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as http:
-            resp = await http.post(token_url, data=form)
-            print(f"🌐 Azure AD response status: {resp.status_code}")
-            
-    except Exception as e:
-        print(f"❌ Azure token request failed: {e}")
-        return JSONResponse(
-            {"error": "azure_token_request_failed", "detail": str(e)}, 
-            status_code=502
-        )
-
-    if resp.status_code != 200:
-        print(f"❌ Azure AD error: {resp.text}")
-        return JSONResponse(
-            {"error": "azure_token_error", "azure_body": resp.text}, 
-            status_code=resp.status_code
-        )
-
-    body = resp.json()
-    print(f"✅ Successfully obtained token from Azure AD")
-    print(f"📊 Token expires in: {body.get('expires_in')} seconds")
-    
-    return JSONResponse({
-        "access_token": body.get("access_token"),
-        "expires_in": body.get("expires_in"),
-        "token_type": body.get("token_type", "Bearer"),
-        "issued_at": int(time.time()),
+        "authentication": "Azure AD JWT required for MCP endpoints",
+        "auth_method": "Direct Azure AD authentication - clients authenticate directly with Azure AD"
     })
 
 if __name__ == "__main__":
     # Initialize and run the server
-    print("🚀 METAR MCP Server with Azure Authentication starting...")
-    print(f"🗄️  MongoDB URL: {MONGODB_URL}")
-    print(f"📊 Database: {DATABASE_NAME}")
-    print(f"🏷️  Collection: {COLLECTION_METAR}")
-    print(f"🔐 Azure Tenant ID: {TENANT_ID}")
-    print(f"🏢 Azure App ID: {APP_ID}")
-    print(f"🌐 Port: {PORT}")
-    print("✅ Server ready! Waiting for HTTP requests...")
+    logger.info("METAR MCP Server with Azure Authentication starting...")
+    logger.info(f"MongoDB URL: {MONGODB_URL}")
+    logger.info(f"Database: {DATABASE_NAME}")
+    logger.info(f"Collection: {COLLECTION_METAR}")
+    logger.info(f"Azure Tenant ID: {TENANT_ID}")
+    logger.info(f"Azure App ID: {APP_ID}")
+    logger.info(f"Port: {PORT}")
+    logger.info("Server ready! Waiting for HTTP requests...")
     
 
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=PORT)
+    # mcp.run(transport="streamable-http", host="0.0.0.0", port=PORT)
+
+    mcp.run(transport="streamable-http", host="127.0.0.1", port=PORT)
