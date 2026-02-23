@@ -1,53 +1,52 @@
-Comment	IGA 11th June'24	IGA 11th June'24		"Menu options - To show if duty falls within next 12 hours or arrival within last 24 hours, duty shows on roster AIMS (layover) & confirmed status found in HOTAC Hotel
-[Domestic]"	
-				Advisory to Crew if Confirmed status found - 	
-No need to check Status of Hotel, Only Check Hotel Name/Details found and Run workflow		2704	"Operating Crew + Training Crew
-Check HOTAC, hotel confirmed status found -
-"	"All information with regards to hotel for your upcoming duty is available on Crew Logistics App. We request you use Crew App for quick assistance and easier coordination. 
+				Day Use hotel 	Domestic						
+	No need to check Status of Hotel, Only Check Hotel Name/Details found and Run workflow		"41637
+
+Hour Format to be updated as usual hours format"	Operating Cockpit + Cabin Crew. Check AIMS, halt between two flights is 04 hours or more, Check HOTAC, confirmed/pending status found. Arrival yet to take place or arrival within last 01 hour	"We can see your transit halt at (station) is xxxx hours, information regarding your hotel is available on Crew Logistics App, you are requested to please access relevant information there.
+Thank You
+Give a link of the app"	"IT needs to check if they can pass th Halt duration 
+
+STA to STD
+STA/ETA/ATA to STD/ETD
+"					
+	No need to check Status of Hotel, Only Check Hotel Name/Details found and Run workflow		16866	Training Crew - Cockpit. Check AIMS, halt between arrival flight & training duty is 04 hours or more/halt between training duty end time & departure flight is 04 hrs or more, Check HOTAC, confirmed/pending status found. Arrival yet to take place or arrival within last 01 hour	"We can see your transit halt at (station) is xxxx hours, information regarding your hotel is available on Crew Logistics App, you are requested to please access relevant information there.
+Thank You
+Give a link of the app"	"Difference b/w Duty & Flight
+
+Training Duty & Departure of next FLight
+Arrival of Flight & Training Duty"					
+	"Only in Day Use - Training
+
+Entry found in hotac but show this verbiage"		27687	Training Crew - Cabin	Currently, as per policy, day use hotel is not authorised for halts befor or after training duties. For details, you may please go to Policy and Procedures section. Thank You						
+											
+											
+											
+					Menu options - To show if duty falls outside next 12 hours, duty shows on roster AIMS (layover) & confirmed status found in HOTAC Hotel						
+				"Operating + Training Crew 
+
+-Check HOTAC, hotel confirmed status found -
+Arrival yet to take place"	"All information with regards to hotel for your upcoming duty is available on Crew Logistics App. We request you use Crew App for quick assistance and easier coordination. 
 
 Please note hotels confirm bookings one day in advance, the earliest you can expect to receive hotel confirmation is 24 hours and latest by 06 hours prior to arrival.
 Thank You
 
-Give a link for the App"	
-					
-				Menu options - To show if duty falls within next 12 hours, duty shows on roster AIMS (layover) & pending/rejected status found in HOTAC Hotel	
-					
-				Menu options - Check if Arrival is in last 2hr or 1hr	
-		383	"Operating Crew + Training Crew
-Check HOTAC, Hotel Details Not Found -
-"	"Since we can see no Hotel information assigned, we'll get you connected to someone to coordinate on this. Please wait.
+Give a link for the App"						
+											
+											
+	Halt to check beyond 8hrs				Menu options - To show if duty falls within next 24 hours or arrival within last 24 hours, duty shows on roster AIMS (layover)   [International] 		"IT to check logic for PAST & Future Timings
 
-BOT to transfer query to agent"	
-					
-				Menu options - To show if duty falls within next 12 hours or outside 12hours/arrival yet to take place in next 12 hours, duty shows on roster AIMS (layover) & no hotel details/name found	
-Update the verbiage from row 22		8663	"Operating Crew + Training Crew
-Check HOTAC, Hotel Details Not Found -
-"	"We can see room reservation is being worked out for your upcoming stay at (station name). Please note you will receive hotel name and confirmation via automated message or an email once the booking is confirmed, Crew Logistics is in touch with the hotel. Also, we request that you check the details on Crew Logistics App after sometime. Thank you.
+Arrival within 24 hours"				
+					Advisory to Crew - 						
+			29837	"Operating Cockpit Crew
+"	"We can see you are scheduled for layover at (station name) on (date).  
 
-Create a ticket for agent to action"	
-					
-			Hotel INTL - Check Last Arrival or next Departure to be INTL	Menu options - Check if Arrival in last 24hr or duty fall in next 12hr and Halt less then 4hr	
-		54545	"Operating Crew + Training Crew
-Check HOTAC, Hotel Details Not Found -
-"	"We can see currently your transit halt at (station) is less than 04 hours, hence day use hotel is not authorized. 
-Please visit our Policy and Procedures section for complete details on the policy. Thank You"	
-					
-Halt to check 4hr - 8hr			Hotel INTL - Check Last Arrival or next Departure to be INTL	Menu options - Check if Arrival in last 24hr or duty fall in next 12hr and Halt more then 4hr	
-		2637	"Operating Crew + Training Crew
-Check HOTAC, Hotel Details Not Found -
-"	"In the current scenario, day use hotel arrangements cannot be made at an international station for transit halts of duration 04 hours keeping in mind factors like distance of hotel from airport and reporting time back for the flight. Applicable allowances shall be deposited in your forex card.
-For information on International allowance policy, do visit Policy and Procedures section. Thank You"	
-					
-					
-		"32180
-73630"	Operating + Training Crew - no entry in HOTAC hotel found, entry in HOTAC transport found, arrival time within last 02 hours	"We can see you had asked for local transport instead of hotel accommodation. Cabs are generally assigned at parking area post arrival.
-Information of transport is available on Crew Logistics App. We request you use Crew App for quick assistance and easier coordination, it also has a feature enabling you to connect with the designated transport supervisor or Admin coordinator.
-Thank You
-Give a link for the App"	
-					
-			Day Use Eligilbility check	"1. If halt is less than 04 hours & no Hotel Detail Found in the next 12 hours, verbiage to be displayed - We can see currently your transit halt at (station) is less than 04 hours, hence day use hotel is not authorized. Please visit our Policy and Procedures section for complete details on the policy. Thank You
+Please note hotels confirm bookings one day in advance, for layover scheduled outside of next 24 hours and beyond, reservation status with hotel name would be sent one day prior to arrival at the layover station. The earliest you can expect to receive hotel confirmation is 24 hours and latest by 06 hours prior to arrival.
+We request you to refer to ICrew where you'll get updated hotel information for your upcoming layover."	"Check of Cockpit or Cabin not required
 
-BOT to give option to go back to the main menu with verbiage asking if they require any other assistance.
+Only check for Operating Crew"					
+			77604	"Operating Cabin Crew
+"	"We can see you are scheduled for layover at (station name) on (date).  
 
-2. If halt is less than 04 hours & Hotel Detail Found applicable in the next 12 hours, verbiage to be displayed - We can see your transit halt at (station) is less than 04 hours, hence day use hotel is not authorized. Please select from the options below so we’re able to assist you further.
-Extend further workflow with all buttons."	
+Please note hotels confirm bookings one day in advance, for layover scheduled outside of next 24 hours and beyond, reservation status with hotel name would be sent one day prior to arrival at the layover station. The earliest you can expect to receive hotel confirmation is 24 hours and latest by 06 hours prior to arrival.
+We request you to refer to ICrew where you'll get updated hotel information for your upcoming layover. 
+Thank You"						
+											
