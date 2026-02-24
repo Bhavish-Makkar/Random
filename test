@@ -1,78 +1,153 @@
-flowchart TB
+"
+Time: -2 hours to next 48 hours"								
+								
+Button - Level 1	Query/concern for Lounge and Meals	Comment IGA 14th June'24	IGA 14th June'24					
+			45550	"Logic
+"	"1) Check Halt Time (2 to 4)
+2) Check the Halt Station(Domestic or International)
+3) Check whether Lounge is available at Halt station
+4) Check Operational Hours of this available Lounge
 
-A[CREW LOGISTICS]
-A --> B[HOTEL]
-A --> RF[REIMBURSEMENT / FEEDBACK]
+If this logic is true, then, print this button."	"Example:
+Bombay(T2) to Delhi(T1) Duty
+Halt
+Delhi(T2) to Jaipur(T1) Duty
 
-%% HOTEL MENU
-B --> QC[QUERY / CONCERN]
-B --> PP[POLICY & PROCEDURES]
-B --> RF
+-Check Lounge at Delhi(T2)"		
+			45550	"-Cockpit Crew
+-lounge tie-up availabe
+-Below 2 hours
+-Domestic
+"	"No Menu options to show if Crew is not eligible for lounge i.e. halt is below 02 hours. BOT to use verbiage - I see your halt is less than 02 hours, hence you're not eligible for lounge currently. If you'd need assistance with something else, please go back to the main menu. Have a nice day! 
 
-%% QUERY / CONCERN BRANCHES
-QC --> HCN[Hotel Cab Not Received]
-QC --> IHN[Issue / Need Assistance in Hotel]
-QC --> HCI[Hotel Cab Clubbing Issue]
-QC --> HSE[Hotel Stay Extension]
-QC --> DUH[Day Use Hotel]
-QC --> RELO[Relocation]
+{Main Menu} 
+"			
+			73607	"-Cabin Crew
+-lounge tie-up availabe
+-Below 2 hours
+-Domestic
+"	"No Menu options to show if Crew is not eligible for lounge i.e. halt is below 02 hours. BOT to use verbiage - I see your halt is less than 02 hours, hence you're not eligible for lounge currently. If you'd need assistance with something else, please go back to the main menu. Have a nice day! 
 
-%% HOTEL CAB NOT RECEIVED
-HCN --> AH[Airport to Hotel]
-HCN --> HA[Hotel to Airport / Training]
+{Main Menu} 
+"			
+			73607	"-Cabin/Cockpit Crew
+-No lounge tie-up
+-Below 2 hours
+-Domestic
+"	"No Menu options to show if Crew is not eligible for lounge i.e. halt is below 02 hours. BOT to use verbiage - I see your halt is less than 02 hours, hence you're not eligible for lounge currently. If you'd need assistance with something else, please go back to the main menu. Have a nice day! 
 
-AH --> AHQ["Asked: Contacted hotel?"]
-AHQ --> AHY[YES → Crew types outcome → Transfer to Agent]
-AHQ --> AHN[NO → Advise to call hotel → Transfer to Agent]
+{Main Menu} 
+"			
+			16, 17 and 19 row	".-Cabin/Cockpit Crew
+.-No lounge details found
+.-Halt in between 2hr-4hr
+.-Domestic
+.-Not Operational
+.-Within 3hr
+"	Please note that at your transit station, there is no contracted lounge or lounge is not operational at this time, meal reimbursement of INR 500 is applicable. You may avail a meal at any outlet at the airport, the allowance will be credited to you in next reimbursement cycle. Thank You			
+			15 - middle condition	".-Cabin/Cockpit Crew
+.-No lounge details found
+.-Halt in between 2hr-4hr
+.- Current Domestic
+.-Within 3 hours
+"	For DEL3, BLR, BOM2, CCU , BBI, AMD , HYD  check if next flight is to an International station, if YES, advise Crew - We can see your next departure is to an international station. Please note at international side of the terminal, there is no contracted lounge tie-up, meal reimbursement of INR500 is applicable. You may avail a meal at any outlet at the airport, meal allowance will be credited to you in next reimbursement cycle. Thank You 			
+			18th row	".-Operating Crew.
+.-Outside 3 hours to 12hours
+.-Domestic"	If transit halt is outside of next 03 hours, advise Crew - Please note that Lounge authorization email is auto generated three hours prior to arrival time and you would receive a copy of the email. Thank you.			
+				".-Training Crew or 
+.-Any ground duty
+.-Domestic"	Thank you for contacting us, currently, the policy of lounge entitlement does not cover lounge arrangements before or after training/ground duty, this applies to operating Crew for transit halts. 	This condition will be moved to main Query&Concern and Need to read Training duty code in between 2 flight and then show this verbiage even if halt is more then 2-4hrs incase of Training found in mid.		
+								
+								
+								"Along with L2 Buttons 
+For information on available lounge tie-ups, operational timings please visit Policy & Procedures section"
+Button - Level 2	Awaiting Lounge Authorisation			Logic	Verbiage	Comment	Ori Requirements	
+			53995	"-Operating Crew.
+-Lounge is applicable
+-Within 3 hours
+-Domestic"	"If Lounge tie-up exists or if base departure flight has delay posted on it (ETD is 02 hours from current time)/check timings of lounge and found operational - Transfer the query to agent.
 
-HA --> HAA[If Airport → Transfer to Agent]
-HA --> HAT[If Training → Create Ticket]
-HAT --> HAT2["Reporting <2 hrs? → Transfer to Agent"]
+For DEL3, BLR, BOM2, CCU check if next flight is to an International station, if YES, advise Crew - We can see your next departure is to an international station. Please note at international side of the terminal, there is no contracted lounge tie-up, meal reimbursement of INR500 is applicable. You may avail meal at any outlet at the airport, meal allowance will be credited to you in next reimbursement cycle. Thank You 
 
-%% ISSUE / NEED ASSISTANCE
-IHN --> I1[Hygiene / Service / Noise]
-IHN --> I2[Waiting for Room]
-IHN --> I3[Twin / King Bed Issue]
-IHN --> I4[Laundry Issue]
-IHN --> I5[Hotel Staff Behaviour]
-IHN --> I6[Meals Concern]
-IHN --> I7[Incident / Safety Concern]
-IHN --> I8[Any Other → Crew Types]
+For DEL3, CCJ check if next flight from DEL3 & CCJ is to domestic station, if YES, Transfer the query to agent
 
-I1 --> TA1[Transfer to Agent]
-I2 --> TA1
-I3 --> TA1
-I4 --> TA1
-I5 --> TA1
-I6 --> TA1
-I7 --> TA1
-I8 --> TA1
+"	"AIMS - DATA read
 
-%% HOTEL CAB CLUBBING
-HCI --> TCB[Transfer to Agent]
+Crew Logistics API - if this does not cover... then get it developed (Digital Team)
 
-%% STAY EXTENSION
-HSE --> SE1[Request Acknowledged]
-HSE --> SE2["Cabin Relocation? → Needs IFS Approval"]
-SE2 --> SE3[Email crew.logistics@goindigo.in]
-HSE --> SE4[Create Ticket]
 
-%% DAY USE HOTEL
-DUH --> DH1[Check Halt Duration]
-DH1 --> DH2[Halt < 4 hrs]
-DH1 --> DH3[Halt ≥ 4 hrs]
+If ETD is Not Applicable, then, 
+1) STD -> Normal -> Check the Halt only (2 to 4 hours)
 
-DH2 --> DH2A[No Hotel Found → Not Authorized]
-DH2 --> DH2B[Hotel Found → Show Options]
 
-DH3 --> DH3A[Operating Crew → Hotel Info in Crew App]
-DH3 --> DH3B[Training Cockpit → Hotel Info in Crew App]
-DH3 --> DH3C[Training Cabin → Day Use Not Authorized]
+If ETD is greater than 0, then,
+1)  ETD is b/w 2 to 4 hours -> Check Base Lounge Tie-up "	"Duties: All Duties from -2hours to 24 hours of current time
 
-%% RELOCATION
-RELO --> R1[Needs IFS Base Head Approval]
+Once, Crew makes a Duty selection. Below details for that Duty are required:
 
-%% REIMBURSEMENT / FEEDBACK
-RF --> RFM[Reimbursement → Create Ticket → Transfer]
-RF --> FB1[Cockpit → URL Form → Close]
-RF --> FB2[Cabin → Create Ticket → Close]
+Duty Codes - Operating, Training
+Transport Details - Tranport Vendor Name
+Cab Details - Cab Number, Driver Contact
+Supervisor Contact Details
+Admin Coordinator Details
+Lounge Name
+Lounge Avilablity"	
+		Will not get execute here		"-Operating Crew.
+-No Lounge Tie-up
+-Within 3 hours
+-Domestic"	"If lounge tie-up does not exist, advise Crew - Please note that at your transit station, there is no contracted lounge tie-up, meal reimbursement of INR500 is applicable. You may avail meal at any outlet at the airport, meal allowance will be credited to you in next reimbursement cycle. Thank You
+
+"			
+		Will not get execute here		"-Operating Crew.
+-Lounge not Operational
+-Within 3 hours (Won't Matter)
+-Domestic"	If lounge timings not operational, advise Crew - Please note the contracted lounge is operational between xx(time) to xx(time), you may avail meal at any outlet at the airport, meal allowance of INR 500 will be credited to you in next reimbursement cycle. Thank You	Check when the halt is and compare it with operational hours of the Lounge	If lounge timing is not operational at Crew Halt time	
+		Will not get execute here		"-Operating Crew.
+-Outside 3 hours to 12hours
+-Domestic"	"If transit halt is outside of next 03 hours, advise Crew - Please note that Lounge authorization email is auto generated three hours prior to arrival time and you would receive a copy of the email. Thank you.
+"			
+		Will not get execute here		"-Operating Crew.
+-Lounge not Operational
+-Outside of 12 hours
+-Domestic"	"If Lounge tie-up exists - Advise Crew - Please note that Lounge authorization email is auto generated three hours prior to arrival time and you would receive a copy of the email. Thank you.
+
+If not, advise Crew - Please note that at your transit station, there is no contracted lounge tie-up, meal reimbursement of INR500 is applicable. You may avail meal at any outlet at the airport, meal allowance will be credited to you in next reimbursement cycle. Thank You"			
+	This case will not work as lounge doesn’t exist					"Eligible 
+SKip the Buttons Ditrectly print this verbiage"		
+				"-Cockpit/Cabin Crew
+-International Halt"	We can see you have a halt at an international station. Currently, there is no provision of a lounge facility at an international airport. As per policy, applicable amount will be credited to you in the Forex card. For details on International Allowance policy, do visit the Policy & Procedures section. Thank You	"Eligible 
+SKip the Buttons Ditrectly print this verbiage"		
+								
+								
+								
+Button - Level 2	Cancel lounge request			Logic	Verbiage			
+Button - Level 3	No Time to go to lounge		45550		"Since due to paucity of time you would not avail lounge, we'll check the details and let you know the next course of action. Thank You
+{Create a Ticket}"	P2		
+								
+				Logic	Verbiage			
+Button - Level 3	Lounge not required		45550		Create a ticket for agent to action, advise Crew - We have taken note of your request to cancel lounge for your upcoming halt. Needful will be done. Thank You, have a nice day ahead!	P2		
+								
+						Not requried beyond 12 hours query		
+Button - Level 2	Seating/Service issues			Logic	Verbiage	Second Button		
+Button - Level 3	I was able to use the Lounge		45550		We have noted this. Thank you.			
+								
+				Logic	Verbiage	First Button		
+Button - Level 3	I couldn't access the Lounge		45550		"Create ticket for agent to action. Advise Crew - We're sorry for the inconvenience. We request you to have your meal at any other outlet, the amount of INR 500 will be reimbursed in the next cycle, you do not have to retain any bills. We'll also raise the concern with the relevant department so this does not recur. Thank you.
+"	P2		
+								
+								
+Button - Level 1	Reimbursement / Feedback 			Logic	Verbiage			
+Button - Level 2	Reimbursement		45550		"Please note reimbursement applies only to scenarios wherein a lounge tie-up existed at an airport however due to some reason, lounge could not be used. Reimbursements are processed only upon approval of Logistics team after thoroughly analyzing the situation and reason lounge could not be used. Would you like to proceed with reimbursement?
+
+
+If YES - Please let us know the date,   station and reason why you couldn't use lounge.
+Once Crew enters details -  Sure, we have noted that you did not use the lounge, we shall put this in our records. We have noted the request for reimbursement. If it is approved, you will receive in the next payment cycle. Thank You {Ticket}
+"			
+			45550		"Please note reimbursement applies only to scenarios wherein a lounge tie-up existed at an airport however due to some reason, lounge could not be used. Reimbursements are processed only upon approval of Logistics team after thoroughly analyzing the situation and reason lounge could not be used. Would you like to proceed with reimbursement?
+
+If NO - Thank you for the input. Please visit the relevant section in case you'd like help with something.
+"			
+				Logic	Verbiage			
+Button - Level 2	Feedback for lounge		45550		"We have noted your feedback.We will involve the relevant department to work on it. Thank you
+
+{Ticket}"			
