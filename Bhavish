@@ -1,45 +1,78 @@
+Hold Fuel Prediction Session 
+In flight there are different types of fuel and their utilisation depends on many factors, these factir depend on the Many factors like weight of the aircraft, Payload and also carrying extra fuel burn more fuel 
 
-flowchart TD
-    %% UI Layer
-    UI[React UI (ChatPage.jsx)]
-    UI -.->|Sends user prompt via fetch (SSE)| API
+Lets suppose we need 1000 kg of Fuel and we have got the 5000 kg of fuel we give 4000 additional fuel ,  now 4000 kg fuel will require more fuel burning, and we cannot consider all the circumstance so apart from it there are different types of fuel aircraft carry like 
+Taxi fuel -->  Aircraft push back from gate till take off fuel burnt is taxi fuel 
+Trip fuel --> Aircraft takes off till it touches the ground (assumption --> Nothing goes wrong then that type of fuel which is burnt is called the trip fuel 
+buffer fuel --> 300 kg of fuel burnt or 5 percent which is greater will be co nsider as a buffer fuel in case of deviate slight or weather ondition then it can be used in reaching the desired destinatrion
 
-    %% Middleware Layer
-    API[FastAPI Middleware (main.py)]
-    AGUI[AG-UI Event Protocol]
-    API -->|Encodes/decodes events| AGUI
-    API -->|Streams AG-UI events (SSE)| UI
-    API -->|Fetches tool list, calls tools| MCP
-    API -->|Calls Azure OpenAI| OpenAI
-    API -->|Reads/writes chat history| Redis
-    API -->|Logs chat & summary| MongoChat
+approch and land fuel --> start to descent and land then this type fuel require approch and land fuel 
 
-    %% MCP Server Layer
-    MCP[FastMCP Server (app.py)]
-    MCP -.->|Exposes tools (search, stats, raw query, etc.)| API
-    MCP -->|Queries METAR data| MongoDB
+Mandatory Reserve --> Govt mandatoary fuel --> 30 min of flying fuel should be3 there in aircraft
 
-    %% Database Layer
-    MongoDB[(MongoDB - METAR Data)]
-    MongoChat[(MongoDB - Chat/Summary)]
-    MCP --> MongoDB
-    API --> MongoChat
 
-    %% LLM Layer
-    OpenAI[Azure OpenAI]
+alternate fuel not able to land at your destination and go to another station then this fuel use is alternate fuel 
 
-    %% Redis Layer
-    Redis[(Azure Redis)]
+Safety Margin built on top of it -----> Hold fuel 
+---------------------------------------------------------------------------------------------------------------------
 
-    %% Connections
-    UI -.->|Receives streamed events| API
-    API -.->|Stores/loads session & chat| Redis
-    API -.->|Summarizes long chats| OpenAI
-    API -.->|Logs chat & summary| MongoChat
+We will evaluate how much hold fuel we need other is fix we dont need to hamper it 
 
-    %% AG-UI Protocol
-    AGUI -.->|Defines event structure| UI
+Suppose at a time of aircraft congestion --> flight need to land in 15 min , unceratinity to which landing can be delayed, It can be predicted using machoine learning 
 
-    %% Legends
-    classDef db fill:#f9f,stroke:#333,stroke-width:1px;
-    class MongoDB,MongoChat,Redis db;
+Airport Capacity --> How much aircraft per minute we require 
+is there reduction of capaction --> due to adverse condition
+
+and many more
+
+Rough calculation till now is there --> 3 month past data is used it is average out we give the additional fuel we require to give it to the flight 
+we need to optimise more specific flight by fliught and calculate optimisation on the basis of Hold time
+
+-----------------------------------------------------------------------
+time to fuel calaculation is already there in Navblue system 
+
+we need to calculate on the basis of hold time
+
+need to happen approx 12 hours in advance 
+
+factor to be consider is the wind speed --> total windspeed
+crosswindspeed --> that part of apped of wind which is perpendicularf to runaway
+
+precipitation
+
+no pf flight landing at the airport capacity of airport
+
+Phase 1 we need to identify how much cost we can safe is it safe doing it ? how much addition fuel was it was it more than we eneded how much addition > what is oppurtunity cost 
+
+Built a POC on that 
+
+windcondtion is there in TAF system --> stronger the windspeed lesser the capacitrty of airport to handle
+
+Rain binary factor yes or no, perecntage by wich it can reduced capacitry
+
+how much aircraft landing at particular day 
+
+higher imbalnce higher the holding time
+
+Data source 
+
+NavBlue --> past fuel calculation
+
+actual timing --> Joc actual v/s planned 
+metplus --> actual weather condtion in Metar 
+Aircraft landed
+
+TAF --> extra polate in fuutre
+
+OAG --> actual traffic condition at airport
+
+planned vs actual fuel monitoring cell try to maintain less margin 
+
+OAG --> Prosm
+runaway orienation --> croosiwnd speed 
+
+nav db --> check with flight ops
+
+
+I have given you all meeting description which was gthere in hold fuel optimisation session now what is need i need to preapre the data flow diagram or block diagram of our understanding which need tobe validated by buisness team
+
