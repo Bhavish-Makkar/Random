@@ -1,0 +1,246 @@
+import os
+import asyncio
+import logging
+import json
+import requests
+from typing import Optional, Any, Dict
+from datetime import datetime
+from motor.motor_asyncio import AsyncIOMotorClient
+from dotenv import load_dotenv
+from bson import ObjectId
+import re
+from pathlib import Path
+# Add FastMCP with authentication support
+from fastmcp import FastMCP, Context
+from fastmcp.server.dependencies import get_access_token, AccessToken
+from fastmcp.server.auth import TokenVerifier, AccessToken as AuthAccessToken
+from fastmcp.server.auth import JWTVerifier 
+from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.middleware.rate_limiting import SlidingWindowRateLimitingMiddleware
+from fastmcp.exceptions import ToolError
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+import base64, json, time
+from functools import wraps
+from inspect import signature
+from collections import defaultdict
+load_dotenv()
+
+
+
+
+
+
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
+import logging
+
+
+
+
+
+
+# ---------------- OTEL RESOURCE ----------------
+provider = TracerProvider()
+trace.set_tracer_provider(provider)
+ 
+span_processor = BatchSpanProcessor(ConsoleSpanExporter())
+provider.add_span_processor(span_processor)
+ 
+tracer = trace.get_tracer(__name__)
+
+LoggingInstrumentor().instrument(set_logging_format=True)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | trace_id=%(otelTraceID)s span_id=%(otelSpanID)s | %(name)s | %(message)s"
+)
+
+logger = logging.getLogger("flightops.mcp.server")   # <-- FIX
+
+# ------------------- Azure AD Configuration -------------------
+TENANT_ID = os.getenv("TENANT_ID")
+APP_ID = os.getenv("APP_ID")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET")
+SERVER_CLIENT_ID = os.getenv("SERVER_CLIENT_ID")
+
+HOST = os.getenv("MCP_HOST", "0.0.0.0")
+PORT = int(os.getenv("MCP_PORT", "8000"))
+TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
+
+MONGODB_URL = os.getenv("MONGO_URI")
+DATABASE_NAME = os.getenv("MONGO_DB")
+COLLECTION_NAME = os.getenv("MONGO_COLLECTION")
+
+# logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+# logger = logging.getLogger("flightops.mcp.server")
+
+# Azure AD JWT Configuration - ENABLED FOR SECURE PRODUCTION
+if TENANT_ID and SERVER_CLIENT_ID:
+    JWKS_URI = f"https://login.microsoftonline.com/{TENANT_ID}/discovery/v2.0/keys"
+    ISSUER = f"https://sts.windows.net/{TENANT_ID}/"
+    AUDIENCE = f"api://{SERVER_CLIENT_ID}"
+    
+    # SECURE: Use proper JWTVerifier with cryptographic signature validation
+    auth = JWTVerifier(
+        jwks_uri=JWKS_URI,
+        issuer=ISSUER,
+        audience=AUDIENCE,
+    )
+    logger.info(f"SECURE JWT Verifier enabled with cryptographic validation")
+    logger.info(f"JWKS URI: {JWKS_URI}")
+    logger.info(f"Issuer: {ISSUER}")
+    logger.info(f"Audience: {AUDIENCE}")
+else:
+    logger.error(" Azure AD configuration missing - JWT authentication disabled")
+    auth = None
+
+# FlightOps Role-Based Authorization Middleware
+class FlightOpsAuthMiddleware(Middleware):
+    """Middleware for role-based access control in FlightOps MCP server."""
+    
+    def __init__(self):
+        print("FlightOpsAuthMiddleware.__init__() called")  # Debug print
+        logger.info("FlightOps Auth Middleware initialized - Required role: FlightRead")
+    
+    async def on_list_tools(self, context: MiddlewareContext, call_next):
+        """Filter tools based on FlightRead role."""
+        print(f" FlightOpsAuthMiddleware.on_list_tools() called")  # Debug print
+        logger.info("Middleware on_list_tools triggered")
+        try:
+            token: AccessToken | None = get_access_token()
+            if not token:
+                logger.info("No token found - returning no tools")
+                print("No token found in middleware")  # Debug print
+                logger.info("No authentication: 0 tools available")
+                raise ToolError("Authentication required. Please log in to access FlightOps data.")
+            else:
+                print(f"🎫 TOKEN FOUND IN MIDDLEWARE:")
+                print(f"Raw token: {token.token}")
+                print(f"Client ID: {token.client_id}")
+                print(f"Scopes: {token.scopes}")
+                print(f"Claims: {json.dumps(token.claims, indent=2)}")
+                print("=" * 80)   
+            
+            user_roles = token.claims.get('roles', [])
+            logger.info(f"User roles: {user_roles}")
+            print(f"User roles in middleware: {user_roles}")  # Debug print
+            
+            # Check if user has FlightRead role - strict enforcement, no public tools
+            if "FlightRead" not in user_roles:
+                user_info = token.claims.get('preferred_username', 'User')
+                logger.warning("User lacks FlightRead role - access denied to all tools")
+                print("User lacks FlightRead role")  # Debug print
+                logger.info("No FlightRead role: 0 tools available")
+                raise ToolError(f"Access denied: {user_info} lacks FlightRead role for aviation data queries. Contact your administrator to request flight operations access.")
+            
+            # User has FlightRead role - proceed with call
+            result = await call_next(context)
+            
+            # Filter tools to only return those with FlightRead tag
+            if hasattr(result, '__iter__'):
+                authorized_tools = [tool for tool in result if "FlightRead" in getattr(tool, 'tags', [])]
+                logger.info(f"FlightRead role verified - access granted to {len(authorized_tools)} FlightRead tools")
+                print(f"FlightRead verified - {len(authorized_tools)} authorized tools")  # Debug print
+                return authorized_tools
+            else:
+                return result
+            
+        except ToolError:
+            raise  # Re-raise ToolErrors as-is
+        except Exception as e:
+            logger.exception(f"Authorization middleware error: {e}")
+            raise ToolError("Authorization system error. Please try again or contact support.")
+    
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        """Prevent execution of unauthorized tools."""
+        print(f"FlightOpsAuthMiddleware.on_call_tool() called for: {context.message.name}")  # Debug print
+        logger.info(f"Middleware on_call_tool triggered for: {context.message.name}")
+        try:
+            token: AccessToken | None = get_access_token()
+            if not token:
+                logger.error("No token in on_call_tool")
+                raise ToolError("Authentication required - no valid token found")
+                
+            user_roles = token.claims.get('roles', [])
+            tool_name = context.message.name
+            
+            # Check if user has FlightRead role for any tool execution
+            if "FlightRead" not in user_roles:
+                logger.warning(f"Tool call denied: user lacks 'FlightRead' role for tool '{tool_name}'")
+                print(f"Access denied for {tool_name} - no FlightRead role")  # Debug print
+                raise ToolError(f"Access denied: FlightRead role required for all tools")
+            
+            # Verify tool requires FlightRead role (strict enforcement)
+            if hasattr(context, 'fastmcp_context') and context.fastmcp_context:
+                try:
+                    tool = await context.fastmcp_context.fastmcp.get_tool(tool_name)
+                    tool_tags = getattr(tool, 'tags', [])
+                    if "FlightRead" not in tool_tags:
+                        logger.warning(f"Tool call denied: tool '{tool_name}' not properly tagged with FlightRead")
+                        raise ToolError(f"Access denied: tool not authorized for execution")
+                except Exception as e:
+                    # Tool not found or other error - deny access for security
+                    logger.error(f"Could not verify tool authorization for '{tool_name}': {e}")
+                    raise ToolError(f"Access denied: unable to verify tool authorization")
+            
+            logger.info(f"Tool call authorized: '{tool_name}' for user with FlightRead role")
+            print(f"Tool authorized: {tool_name}")  # Debug print
+            return await call_next(context)
+            
+        except ToolError:
+            # Re-raise ToolError to maintain proper error handling
+            raise
+        except Exception as e:
+            logger.error(f"Error in tool execution middleware: {e}")
+            raise ToolError(f"Authorization check failed: {str(e)}")
+    
+
+    async def on_message(self, context: MiddlewareContext, call_next):
+        """
+        Log all MCP operations AND wrap them inside an OpenTelemetry span.
+        """
+        # Start OTEL span for each MCP request
+        with tracer.start_as_current_span("mcp_request") as span:
+
+            # --- Add attributes to span ---
+            span.set_attribute("mcp.method", context.method)
+
+            # Extract user info
+            token: AccessToken | None = get_access_token()
+            user_info = "anonymous"
+
+            if token:
+                user_info = token.claims.get(
+                    "preferred_username",
+                    token.claims.get("sub", "unknown")
+                )
+
+            # Add user to span
+            span.set_attribute("mcp.user", user_info)
+
+            # Log MCP request
+            logger.info(f"MCP Request: {context.method} from {user_info}")
+
+            try:
+                # Process next middleware / tool call
+                result = await call_next(context)
+
+                # Log success
+                logger.info(f"MCP Completed: {context.method} for {user_info}")
+
+                return result
+
+            except Exception as e:
+                # Record exception inside span
+                span.record_exception(e)
+                span.set_status(trace.status.Status(trace.status.StatusCode.ERROR, str(e)))
+
+                # Log error
+                logger.exception(f"MCP Failed: {context.method} for {user_info}")
+
+                raise
+
