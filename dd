@@ -30,7 +30,10 @@ load_dotenv()
 
 
 
+from opentelemetry.trace import Status, StatusCode
+ 
 
+ 
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
@@ -46,8 +49,15 @@ import logging
 provider = TracerProvider()
 trace.set_tracer_provider(provider)
  
-span_processor = BatchSpanProcessor(ConsoleSpanExporter())
+import sys
+class StdErrConsoleSpanExporter(ConsoleSpanExporter):
+    def __init__(self):
+        super().__init__()
+        self.out = sys.stderr
+
+span_processor = BatchSpanProcessor(StdErrConsoleSpanExporter())
 provider.add_span_processor(span_processor)
+
  
 tracer = trace.get_tracer(__name__)
 
@@ -237,10 +247,102 @@ class FlightOpsAuthMiddleware(Middleware):
             except Exception as e:
                 # Record exception inside span
                 span.record_exception(e)
-                span.set_status(trace.status.Status(trace.status.StatusCode.ERROR, str(e)))
+                span.set_status(Status(StatusCode.ERROR))
 
                 # Log error
                 logger.exception(f"MCP Failed: {context.method} for {user_info}")
 
                 raise
-
+@mcp.tool(tags=["FlightRead"])
+async def Station_Data_Processor():
+    """
+    Station Data Processor Tool
+ 
+    This tool sends a POST request to the Station Catalog Data API, retrieves station data,
+    and processes it to extract and validate information about global stations, including
+    their identifiers, names, codes, and associated countries.
+ 
+    Returns:
+        dict: The tool processes the data and provides structured outputs, such as:
+            Filtered station lists (e.g., by country, IATA code, etc.),Summarized reports of station data,Validation of missing or incomplete fields.
+ 
+    """
+    with tracer.start_as_current_span("tool:station_data_processor") as span:
+        span.set_attribute("tool.name", "Station_Data_Processor")
+        span.set_attribute("tool.category", "catalog_api")
+        span.set_attribute("api.endpoint", "StationCatalogData")
+       
+        # Get user context for tracing
+        token = get_access_token()
+        if token:
+            span.set_attribute("user.id", token.claims.get("oid", "unknown"))
+       
+        logger.info("Station Data Processor tool execution started")
+       
+        try:
+            # API endpoint and headers
+            url = "https://jocflightapi-uat-3scale-apicast-production.apps.ocpnonprodcl01.goindigo.in:443/CatalogDataOutputRestService/1/StationCatalogData"
+            headers = {
+                "Content-Type": "application/json",
+                "user_key": os.getenv("USER_KEY"),  # Load user_key from environment variables
+                "Authorization": f"Bearer {os.getenv('BEARER_TOKEN')}"  # Load bearer token from environment variables
+            }
+ 
+            # Request body
+            payload = {
+                "version": "1.beta",
+                "source": "test",
+                "created": "2024-10-28T00:00:00Z",
+                "periodStart": "2024-11-28T00:00:00Z",
+                "periodEnd": "2024-11-29T23:59:00Z"
+            }
+ 
+            span.set_attribute("http.url", url)
+            span.set_attribute("http.method", "POST")
+            span.set_attribute("payload.version", payload["version"])
+            span.set_attribute("payload.source", payload["source"])
+           
+            # Record API call start time
+            import time
+            api_start_time = time.time()
+           
+            # Make the POST request
+            logger.info(f"Making API request to: {url}")
+            response = requests.post(url, headers=headers, json=payload)
+           
+            # Calculate API duration
+            api_duration = time.time() - api_start_time
+            span.set_attribute("http.duration_ms", round(api_duration * 1000, 2))
+            span.set_attribute("http.status_code", response.status_code)
+ 
+            # Check for successful response
+            if response.status_code == 200:
+                try:
+                    span.set_attribute("api.success", True)
+                    span.set_attribute("response.length", len(response.text))
+                    logger.info(f"Station Data API call successful, response length: {len(response.text)} chars")
+ 
+                    # Generate output
+                    return response.text
+                except json.JSONDecodeError:
+                    span.record_exception(Exception("JSON decode error"))
+                    span.set_status(trace.Status(trace.StatusCode.ERROR, "Invalid JSON response"))
+                    logger.error("Invalid JSON response from Station Data API")
+                    return {"error": "Invalid JSON response from the API"}
+            else:
+                span.set_attribute("api.success", False)
+                span.set_status(trace.Status(trace.StatusCode.ERROR, f"HTTP {response.status_code}"))
+                logger.error(f"Station Data API failed with status {response.status_code}: {response.text}")
+                return {"error": f"API request failed with status code {response.status_code}: {response.text}"}
+ 
+        except requests.exceptions.RequestException as e:
+            span.record_exception(e)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, "Request exception"))
+            logger.exception("Request exception in Station Data Processor")
+            return {"error": f"Request exception occurred: {str(e)}"}
+        except Exception as e:
+            span.record_exception(e)
+            span.set_status(trace.Status(trace.StatusCode.ERROR, "Unexpected error"))
+            logger.exception("Unexpected error in Station Data Processor")
+            return {"error": str(e)}
+ 
