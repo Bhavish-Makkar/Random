@@ -1,0 +1,48 @@
+POST https://igo.nfp.vmc.navblue.cloud:444/NavtechPublicService.svc HTTP/1.1
+ Accept: text/xml
+ Accept: multipart/*
+ Accept: application/soap
+ Content-Length: 1347
+ Content-Type: text/xml; charset=utf-8
+ SOAPAction: http://navtech.aero/NavtechPublicService/FlightStatus
+⁠
+<?xml version="1.0" encoding="UTF-8"?>
+ <soap:Envelope 
+ soap:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" 
+ xmlns:NavWeb="urn:NavWeb" 
+ xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+ xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" 
+ xmlns:xsd="http://www.w3.org/2001/XMLSchema" 
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ <soap:Header>
+ <o:Security soap:mustUnderstand="1" xmlns:o="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+ <o:UsernameToken>
+ <o:Username>IGO/sseager</o:Username>
+ <o:Password>[REDACTED]</o:Password>
+ </o:UsernameToken>
+ </o:Security>
+ </soap:Header>
+⁠
+ <soap:Body>
+ <NavWeb:FlightStatus>
+ <Input xsi:type="NavWeb:FlightStatusRequest">
+ <User xsi:type="NavWeb:User">
+ <EnvAlc>IGO</EnvAlc>
+ <UserId>SOAP</UserId>
+ </User>
+⁠
+ <FlightId xsi:type="NavWeb:FlightId">
+ <Key xsi:type="NavWeb:FlightKey">
+ <FltNum>461</FltNum>
+ <StdUtc>2024-12-05T12:30:00</StdUtc>
+ <OrigApt>VEJH</OrigApt>
+ </Key>
+ </FlightId>
+ <GroupIds>Desk16</GroupIds>
+ <UnassignRemainingGroupIds>true</UnassignRemainingGroupIds>
+ </Input>
+ </NavWeb:FlightStatus>
+ </soap:Body>
+ </soap:Envelope>
+ 
+ 
