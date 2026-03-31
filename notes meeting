@@ -1,0 +1,214 @@
+On Silver.OAG.P_V_INTERGLOBE_STATUS_SUMMARY
+
+Doubt --> Arrival Actual onground UTC --> Some values are null 
+
+Doubt --- 
+Departure Actual off ground UTC --> some values are null
+
+For the Delhi airport 
+
+difference will be the flying time actual
+
+
+Correlate with Navblue planned flight time
+
+Silver.Navblue.T_Fuel_Flight_Time  Columns Trip time+Holding Time=Planned flight 
+
+Compare Actual vs Plan flight
+
+
+Hold Fuel --> the amount of fuel to cater this time 
+
+------------------------------------------------------------------------------------------------------------------------------------------------
+
+Point to consider --> Monday should be correlate with the next Monday and so on similarly
+
+
+
+schedule flights>>> Capacity of airport ----> Lead to congestion ---> more hold fuel
+
+
+Visiblity
+
+
+Visibility (meters)Capacity Effect   550+No issue full capacity,125–550Gradual reduction,75–125Major reduction,<75Arrivals stopped
+
+Actual flying =Trip + Holding time
+
+Example from call:
+
+Planned = 44 minutes
+Extra buffer fuel = +13 minutes
+Total planned with buffer = 57 min
+Actual = 50 minutes
+
+Means:
+
+Inefficiency present because actual ≠ planned + buffers.
+
+Weather Data --> Silver.Metar.RPT_WEATHER_MSG
+
+
+ WEATHER PHENOMENA
+Types explained:
+
+RA → Rain
+-RA → light rain
++RA → heavy rain
+TSRA → Thunderstorm + Rain
+CB → Cumulonimbus (dangerous clouds)
+
+Crosswindspeed
+
+Extract wind direction & speed from METAR.
+Convert runway number to runway heading.
+Compute angle difference between wind & runway.
+Apply trigonometric formulas:
+
+Crosswind = speed × sin(diff)
+Headwind/Tailwind = speed × cos(diff)
+
+
+Use thresholds to classify operational impact:
+
+< 5 knots = Normal
+5–15 knots = Capacity Reduction
+
+
+15 knots = High risk, holding likely
+
+
+Doubt -->>
+Silver.Metar.RPT_WEATHER_MSG
+ how TAF is present
+
+TAF --> Forecast data
+
+Metar --> Actual data
+
+
+We will use METAR data for the actual modal training and we will use forecast to predict (TAF)
+
+
+
+
+METAR String:
+Plain Text
+HAAB 101100Z 09006KT 9999 FEW025 23/03 Q1025 NOSIG =
+
+
+ Breakdown & Meaning
+HAAB
+ Airport Code
+HAAB = Addis Ababa Bole International Airport (Ethiopia)
+101100Z
+ Date & Time (UTC/Zulu time)
+10 = Month ka 10th din
+1100Z = 11:00 UTC time
+ Agar IST me dekhe:
+UTC + 5:30 = 16:30 IST (4:30 PM)
+09006KT
+ Wind (Hawa ki direction & speed)
+090 = Hawa East (Purab) se aa rahi hai
+06KT = Speed 6 knots (~11 km/h)
+ Matlab: Halki hawa, purab se
+9999
+ Visibility (Dekhne ki duri)
+9999 = 10 km ya usse zyada visibility
+ Matlab: Bilkul clear visibility
+FEW025
+ Clouds (Badal)
+FEW = Thode se badal (1–2 oktas)
+025 = 2500 feet altitude par
+ Matlab: Thode badal, kaafi clear sky
+23/03
+ Temperature / Dew Point
+Temperature = 23°C
+Dew Point = 3°C
+ Matlab: Weather dry hai, humidity kaafi kam
+Q1025
+ Atmospheric Pressure
+1025 hPa
+ Matlab: High pressure → stable & acha weather
+NOSIG
+ No Significant Change
+Aane wale 2 ghante me weather me koi khaas change nahi
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Relative Humidity --> Temprature - dew point
+
+QNH (Pressure --> Station level pressure reduced to sea level pressure)
+
+1013.2hpa--> Standard Pascal pressure
+
+less than 1013.2hpa --> Low pressure --> Bad weather --> strong and wind
+
+more than 1013.2 hpa--> high pressure--> good and stable condition
+
+
+temperature and pressure--> not taken as factors
+
+
+Precipitation
+WEATHER PHENOMENA
+Types explained:
+
+RA → Rain
+-RA → light rain
++RA → heavy rain
+TSRA → Thunderstorm + Rain
+CB → Cumulonimbus (dangerous clouds)
+
+Impacts:
+
+Light rain → minor impact
+Heavy rain / TSRA → severe capacity drop
+CB clouds → pilots avoid → rerouting & holding
+
+CLOUD CEILING
+Important threshold:
+
+> 2000 ft → No impact
+2000 ft – 100 ft → 10–15% capacity reduction
+
+Low clouds = pilots cannot see runway → slow approach → spacing increases → holding.
+
+
+METAR (Weather Report) Breakdown
+Priyanshu & Shivam ne tumhe sikhaya ki METAR ko kaise read karte hain:
+Typical structure:
+
+Airport code + timestamp
+Wind (Direction + Speed)
+Visibility
+Weather phenomenon (RA, TS)
+Clouds
+Temperature & dew point
+QNH (Pressure)
+Forecast (TEMPO / BECMG)
+
+Sir ne bola tumhe:
+
+Only useful features pick karo
+Pressure is generally not needed
+Temperature also not major factor except humidity cases.
+
+
+🧠 4. ML Use Case Explanation
+Actual → planned → difference = “inefficiency”
+Model will predict:
+
+Better planned flight time
+Reduce unnecessary fuel carried
+Improve flight planning efficiency.
+
+Your model should output:
+
+How close prediction is to “actual”
+Reduced difference → better model
+
+
+-----------------------------
+
+doubt --> How to map metar and OAG data, how to map navbllue and oag data and how to map metar and navblue
