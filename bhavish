@@ -1,9 +1,15 @@
 import fitz  # PyMuPDF
- 
+from openai import AzureOpenAI
+
+client=AzureOpenAI(
+    api_key="",
+    api_version="2024-02-15-preview",
+    azure_endpoint="
+)
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
     pages = []
- 
+    
     for i, page in enumerate(doc):
         text = page.get_text("text")
         pages.append({
@@ -60,6 +66,8 @@ def split_into_sections(pages):
         sections.append(current_section)
  
     return sections
+
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter 
 def chunk_sections(sections):
     splitter = RecursiveCharacterTextSplitter(
@@ -84,6 +92,9 @@ def chunk_sections(sections):
             })
  
     return chunks
+
+
+
 def clean_text(chunk):
     # Remove excessive spaces
     text = re.sub(r'\s+', ' ', chunk)
@@ -106,7 +117,35 @@ def process_pdf(pdf_path):
  
     return final_chunks
 
-
-chunks = process_pdf("FOSA_description.pdf")
+def get_embedding(text):
+    response = client.embeddings.create(
+        model="text-embedding-3-large",  # Foundry deployment name
+        input=text
+    )
+    return response.data[0].embedding
  
 
+def embed_chunks(chunks):
+    embedded_chunks = []
+ 
+    for c in chunks:
+        embedding = get_embedding(c["text"])
+ 
+        embedded_chunks.append({
+            "text": c["text"],
+            "embedding": embedding,
+            "metadata": c["metadata"]
+        })
+ 
+    return embedded_chunks
+ 
+ 
+
+chunks = process_pdf("FOSA_description.pdf")
+embedded_chunks=embed_chunks(chunks)
+
+
+import json
+
+with open("embedded_chunks.json", "w", encoding="utf-8") as f:
+    json.dump(embedded_chunks, f, ensure_ascii=False)
