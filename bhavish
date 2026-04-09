@@ -1,67 +1,112 @@
-import requests
-import pandas as pd
-from bs4 import BeautifulSoup
+import fitz  # PyMuPDF
+ 
+def extract_text_from_pdf(pdf_path):
+    doc = fitz.open(pdf_path)
+    pages = []
+ 
+    for i, page in enumerate(doc):
+        text = page.get_text("text")
+        pages.append({
+            "page": i + 1,
+            "text": text
+        })
+    output_path="Fosa.txt"
+    with open(output_path, "w", encoding="utf-8") as f:
+                for page in pages:
+                    f.write(f"\n===== PAGE {page['page']} =====\n")
+                    f.write(page["text"])
+                    f.write("\n")
 
-# Use client credential flow (app id + secret/certificate) to get token
-access_token = "YOUR_APP_ONLY_ACCESS_TOKEN_HERE"
+    return pages
 
-headers = {
-    "Authorization": f"Bearer {access_token}",
-    "Prefer": 'outlook.body-content-type="html"'
-}
-
-def get_latest_mail_with_subject_for_user(user_email: str, keyword: str):
-    url = (
-        f"https://graph.microsoft.com/v1.0/users/{user_email}/messages"
-        "?$top=1"
-        "&$orderby=receivedDateTime desc"
-        f"&$search=\"subject:{keyword}\""
+import re
+ 
+def split_into_sections(pages):
+    sections = []
+    current_section = {
+        "title": "UNKNOWN",
+        "content": "",
+        "page_start": 1
+    }
+ 
+    heading_pattern = re.compile(
+        r'^(SECTION\s+\d+.*|[A-Z][A-Z\s\-()]{5,}:)$'
     )
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    if "value" not in data or len(data["value"]) == 0:
-        raise ValueError("No email found matching your query")
-    return data["value"][0]
+ 
+    for page in pages:
+        lines = page["text"].split("\n")
+ 
+        for line in lines:
+            line = line.strip()
+ 
+            if not line:
+                continue
+ 
+            if heading_pattern.match(line):
+                # Save previous section
+                if current_section["content"]:
+                    sections.append(current_section)
+ 
+                current_section = {
+                    "title": line,
+                    "content": "",
+                    "page_start": page["page"]
+                }
+            else:
+                current_section["content"] += line + "\n"
+ 
+    # Add last section
+    if current_section["content"]:
+        sections.append(current_section)
+ 
+    return sections
+from langchain_text_splitters import RecursiveCharacterTextSplitter 
+def chunk_sections(sections):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=500,
+        chunk_overlap=80,
+        separators=["\n\n", "\n", ".", " "]
+    )
+ 
+    chunks = []
+ 
+    for sec in sections:
+        split_texts = splitter.split_text(sec["content"])
+ 
+        for i, chunk in enumerate(split_texts):
+            chunks.append({
+                "text": chunk,
+                "metadata": {
+                    "section": sec["title"],
+                    "page_start": sec["page_start"],
+                    "chunk_id": f"{sec['title']}_{i}"
+                }
+            })
+ 
+    return chunks
+def clean_text(chunk):
+    # Remove excessive spaces
+    text = re.sub(r'\s+', ' ', chunk)
+    
+    # Fix broken words (optional improvement)
+    text = text.replace("- ", "")
+    
+    return text.strip()
+def process_pdf(pdf_path):
+    pages = extract_text_from_pdf(pdf_path)
+    sections = split_into_sections(pages)
+    chunks = chunk_sections(sections)
+ 
+    # Clean + enrich
+    final_chunks = []
+    for c in chunks:
+        c["text"] = clean_text(c["text"])
+        
+        final_chunks.append(c)
+ 
+    return final_chunks
 
-def get_message_body_html_for_user(user_email: str, message_id: str) -> str:
-    url = f"https://graph.microsoft.com/v1.0/users/{user_email}/messages/{message_id}?$select=body"
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["body"]["content"]
 
-def extract_first_table_to_df(html: str) -> pd.DataFrame:
-    from bs4 import BeautifulSoup
-    import pandas as pd
+chunks = process_pdf("FOSA_description.pdf")
+ 
 
-    soup = BeautifulSoup(html, "html.parser")
-    table = soup.find("table")
-    if table is None:
-        raise ValueError("No table found in email body")
-
-    rows = []
-    for tr in table.find_all("tr"):
-        cells = tr.find_all(["td", "th"])
-        row = [c.get_text(strip=True) for c in cells]
-        if row:
-            rows.append(row)
-    if len(rows) < 2:
-        raise ValueError("Table found but not enough data")
-    header = rows[0]
-    data_rows = rows[1:]
-    return pd.DataFrame(data_rows, columns=header)
-
-def main():
-    user_email = "metstratosphere@goIndiGo.in"
-    keyword = "Daily Report"
-    message = get_latest_mail_with_subject_for_user(user_email, keyword)
-    message_id = message["id"]
-    body_html = get_message_body_html_for_user(user_email, message_id)
-    df = extract_first_table_to_df(body_html)
-    output_file = "email_table_output_app_only.xlsx"
-    df.to_excel(output_file, index=False)
-    print(f"Saved table to {output_file}")
-
-if __name__ == "__main__":
-    main()
